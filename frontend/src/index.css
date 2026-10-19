@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-white text-[#1f1f1f] antialiased dark:bg-surface-dark dark:text-[#e3e3e3];
+  }
+  ::selection { @apply bg-blue-200 dark:bg-blue-800; }
+}
+
+@layer components {
+  .gradient-text {
+    background: linear-gradient(74deg, #4285f4 0%, #9b72cb 40%, #d96570 75%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .btn-icon {
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-600 transition hover:bg-surface-hover dark:text-gray-300 dark:hover:bg-surface-darkhover;
+  }
+  .input {
+    @apply w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-surface-darkcard;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition hover:bg-surface-hover dark:hover:bg-surface-darkhover;
+  }
+  .card {
+    @apply rounded-2xl bg-surface-card dark:bg-surface-darkcard;
+  }
+}
+
+/* thin scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgba(128,128,128,.35) transparent; }
+
+/* markdown tables */
+.prose table { @apply block overflow-x-auto; }
+
+/* typing dots */
+@keyframes blink { 0%, 80%, 100% { opacity: .2 } 40% { opacity: 1 } }
+.dot { animation: blink 1.4s infinite both; }
+.dot:nth-child(2) { animation-delay: .2s; }
+.dot:nth-child(3) { animation-delay: .4s; }
+
+/* Gemini-style shimmering star while thinking */
+@keyframes spin-slow { to { transform: rotate(360deg) } }
+.thinking-star { animation: spin-slow 2.5s linear infinite; }
