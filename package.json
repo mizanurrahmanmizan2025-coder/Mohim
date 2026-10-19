@@ -1,0 +1,15 @@
+{
+  "name": "custom-ai-suite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gemini-style AI SaaS chatbot — Express API + React frontend served from one Node.js app",
+  "main": "server.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "postinstall": "npm --prefix backend install --omit=dev && npm --prefix frontend install --include=dev",
+    "build": "npm --prefix frontend run build",
+    "start": "node server.js",
+    "dev:api": "npm --prefix backend run dev",
+    "dev:web": "npm --prefix frontend run dev"
+  }
+}
