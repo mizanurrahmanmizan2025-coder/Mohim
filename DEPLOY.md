@@ -158,3 +158,26 @@ Use this if your main domain is on a plan without Node.js, and the API runs else
 | A provider always fails with HTTP 400/404 | Its model was retired — update `*_MODEL`. Check the provider's model list. |
 | Voice button missing | Speech recognition needs Chrome/Edge/Safari over HTTPS. Firefox has no Web Speech recognition. |
 | Images don't download, only open | Some browsers block cross-site downloads; the open-in-tab fallback still lets users save them. |
+
+---
+
+## 9. Feature chains & live progress (v2)
+
+**Chains** (edit with env vars, `provider` or `provider:model`, tried left → right; providers without keys are skipped):
+
+| Feature | Env | Default |
+|---|---|---|
+| Chat, writing, search answers, router, image prompts | `CHAIN_TEXT` | Gemini → Groq → DeepSeek → OpenRouter → Mistral |
+| Code Expert | `CHAIN_CODE` | DeepSeek V4 Pro → Gemini 3.8 Flash → Groq gpt-oss-120b → Groq Qwen 3.6 → OpenRouter Qwen3 Coder → Mistral Codestral → OpenRouter free |
+| Images/PDF reading | `CHAIN_VISION` | Gemini 3.8 Flash → Gemini 3.6 Flash |
+| Image generation | `CHAIN_IMAGE` | Nano Banana 2 → Nano Banana 2 Lite → Cloudflare FLUX → Hugging Face FLUX → Pollinations |
+
+The Admin dashboard shows every chain live (struck-through = no keys).
+
+**Streaming** uses Server-Sent Events on `POST /api/chat/stream`. Render streams out of the box.
+If your host's proxy buffers responses (some shared hosting does), everything still works — the answer just
+appears at the end instead of word by word. The server already sends `X-Accel-Buffering: no` and
+`Cache-Control: no-transform` to disable buffering where the proxy respects them.
+
+**Generated images** are stored in MongoDB (`generatedimages` collection) and served from `/api/images/file/…`.
+`IMAGE_TTL_DAYS=30` deletes old ones so the 512 MB Atlas free tier doesn't fill up (~1–2 MB per image).
