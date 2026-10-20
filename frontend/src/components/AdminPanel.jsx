@@ -241,6 +241,7 @@ export default function AdminPanel() {
                 {p.totalKeys} keys · {p.coolingDown} cooling down<br />
                 ✓ {p.stats.success} · ✕ {p.stats.failed} · 429 {p.stats.rateLimited}
               </div>
+              {p.note && <div className="mt-2 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">⚠ {p.note}</div>}
             </div>
           ))}
         </div>
