@@ -1,10 +1,24 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check, Copy, Download, ExternalLink, FileText, Square, Volume2 } from 'lucide-react';
+import { Check, Copy, Download, ExternalLink, FileText, Search, Square, Volume2 } from 'lucide-react';
 import Markdown from './Markdown.jsx';
 import { Sparkle } from './Logo.jsx';
 import { speak, stopSpeaking, ttsSupported } from './VoiceInput.jsx';
-import { copyText } from '../utils/helpers.js';
+import { copyText, getModeMeta } from '../utils/helpers.js';
+
+/* which tool the auto-router used */
+function RouteChip({ mode }) {
+  if (!mode || mode === 'general') return null;
+  const meta = mode === 'search'
+    ? { label: 'Web Search', icon: Search, color: 'text-cyan-500' }
+    : getModeMeta(mode);
+  const Icon = meta.icon;
+  return (
+    <span className={`ml-1 inline-flex items-center gap-1 rounded-full bg-surface-card px-2 py-0.5 text-[11px] dark:bg-surface-darkcard ${meta.color}`}>
+      <Icon size={12} /> {meta.label}
+    </span>
+  );
+}
 
 async function downloadImage(url, i) {
   try {
@@ -119,6 +133,7 @@ export default function MessageBubble({ msg, readOnly = false }) {
                 {speaking ? <Square size={14} /> : <Volume2 size={16} />}
               </button>
             )}
+            <RouteChip mode={msg.routedMode} />
             {msg.provider && <span className="ml-1 text-[11px] uppercase tracking-wide opacity-60">{msg.provider}</span>}
           </div>
         )}
