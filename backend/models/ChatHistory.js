@@ -11,6 +11,19 @@ const messageSchema = new mongoose.Schema(
     routedMode: String, // which tool the auto-router used (image, code, search, ...)
     steps: [{ _id: false, id: String, label: String, status: String, detail: String }], // live-progress log
     stopped: Boolean, // user pressed Stop while it was generating
+    fileText: String, // extracted text of attached files (server-only; used by Regenerate)
+    variants: [
+      {
+        _id: false,
+        content: String,
+        images: [String],
+        provider: String,
+        model: String,
+        routedMode: String,
+        steps: [{ _id: false, id: String, label: String, status: String, detail: String }],
+        createdAt: Date,
+      },
+    ], // earlier versions of this answer (Regenerate)
   },
   { timestamps: true }
 );

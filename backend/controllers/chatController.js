@@ -86,6 +86,10 @@ function adapter(ctx, emit, step, stepId) {
         n += 1;
         step(`${stepId}-fb${n}`, ev.toLabel ? `${ev.fromLabel}: ${ev.reason} → switching to ${ev.toLabel}` : `${ev.fromLabel}: ${ev.reason}`, 'warn');
         break;
+      case 'waiting':
+        n += 1;
+        step(`${stepId}-wait${n}`, ev.label, 'warn');
+        break;
       case 'search_status':
         step(stepId, ev.label, 'active');
         break;
@@ -95,23 +99,26 @@ function adapter(ctx, emit, step, stepId) {
 }
 
 /* ───────────────────────── the pipeline ───────────────────────── */
-async function runPipeline({ req, chat, message, selectedMode, files, emit, signal, ctx }) {
+async function runPipeline({ req, chat, message, selectedMode, files, emit, signal, ctx, regen }) {
   const step = tracker(ctx, emit);
   const history = chat.messages.slice(-HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content || '', routedMode: m.routedMode }));
   const llmHistory = history.map(({ role, content }) => ({ role, content }));
 
   /* 1. understand */
-  step('understand', 'Understanding your request');
+  step('understand', regen ? 'Regenerating the response' : 'Understanding your request');
   let route = null;
   let target = selectedMode;
-  if (selectedMode === 'general') {
+  const prevTool = regen?.previous?.routedMode;
+  if (prevTool && (modes[prevTool] || prevTool === 'search')) {
+    target = prevTool; // regenerate with the same tool as the original answer
+  } else if (selectedMode === 'general') {
     route = await routeIntent({ message, files, history });
     target = route.intent;
     console.log(`[router] "${message.slice(0, 60)}" → ${target} (${route.source})`);
   }
   if (files.length && (target === 'image' || target === 'search')) target = 'document';
   ctx.target = target;
-  step('understand', 'Understanding your request', 'done', `→ ${MODE_LABEL[target]}`);
+  step('understand', regen ? 'Regenerating the response' : 'Understanding your request', 'done', `→ ${MODE_LABEL[target]}`);
   emit('route', { mode: target, label: MODE_LABEL[target] });
 
   /* 2. files */
@@ -120,6 +127,13 @@ async function runPipeline({ req, chat, message, selectedMode, files, emit, sign
     step('files', `Reading ${files.length} attached file${files.length > 1 ? 's' : ''}`);
     doc = await processFiles(files);
     step('files', undefined, 'done', doc.meta.map((m) => m.name).join(', '));
+    ctx.fileText = doc.text.slice(0, 60000); // kept so the answer can be regenerated later
+  } else if (regen?.user?.attachments?.length) {
+    // regenerate: reuse the text extracted from the original files (images can't be re-sent)
+    doc = { text: regen.user.fileText || '', images: [], meta: regen.user.attachments };
+    const hadVisual = regen.user.attachments.some((a) => /^image\//.test(a.mimeType || '') || a.mimeType === 'application/pdf');
+    if (hadVisual && !doc.text) doc.text = '[The original attached image/scan is not available when regenerating — answer from the conversation.]';
+    step('files', 'Reusing the attached file content', 'done', regen.user.attachments.map((a) => a.name).join(', '));
   }
   ctx.attachments = doc.meta;
 
@@ -212,18 +226,50 @@ async function runPipeline({ req, chat, message, selectedMode, files, emit, sign
 
 /* ───────────────────────── shared setup / save ───────────────────────── */
 async function prepare(req) {
-  const message = String(req.body.message || '').trim();
+  let message = String(req.body.message || '').trim();
   const selectedMode = modes[req.body.mode] ? req.body.mode : 'general';
   const files = req.files || [];
   let chat = null;
   if (req.body.chatId && validId(req.body.chatId)) chat = await ChatHistory.findOne({ _id: req.body.chatId, user: req.user._id });
+
+  /* Regenerate: take the last user → assistant pair out of the conversation (in memory only;
+     nothing changes in the database unless the new answer is saved). */
+  let regen = null;
+  if (String(req.body.regenerate) === 'true') {
+    const n = chat?.messages.length || 0;
+    const previous = chat?.messages[n - 1];
+    const user = chat?.messages[n - 2];
+    if (!previous || previous.role !== 'assistant' || user?.role !== 'user') {
+      return { error: 'Nothing to regenerate in this chat' };
+    }
+    regen = { previous: previous.toObject ? previous.toObject() : previous, user: user.toObject ? user.toObject() : user };
+    chat.messages.splice(n - 2, 2);
+    message = regen.user.content || '';
+  }
+
   if (!chat) chat = new ChatHistory({ user: req.user._id, mode: selectedMode, title: makeTitle(message || files[0]?.originalname) });
-  return { message, selectedMode, files, chat };
+  return { message, selectedMode, files, chat, regen };
 }
 
-async function persist(chat, message, ctx, result, stopped = false) {
+const MAX_VARIANTS = Number(process.env.MAX_REGENERATE_VERSIONS || 5);
+const snapshot = (m) => ({
+  content: m.content, images: m.images, provider: m.provider, model: m.model,
+  routedMode: m.routedMode, steps: m.steps, createdAt: m.createdAt,
+});
+/** Never send stored file text to the browser. */
+const publicMsg = (m) => {
+  const o = m?.toObject ? m.toObject() : { ...m };
+  delete o.fileText;
+  return o;
+};
+
+async function persist(chat, message, ctx, result, stopped = false, regen = null) {
+  const userMsg = regen
+    ? { role: 'user', content: regen.user.content, attachments: regen.user.attachments, fileText: regen.user.fileText, createdAt: regen.user.createdAt }
+    : { role: 'user', content: message, attachments: ctx.attachments || [], fileText: ctx.fileText };
+  const variants = regen ? [...(regen.previous.variants || []), snapshot(regen.previous)].slice(-MAX_VARIANTS) : undefined;
   chat.messages.push(
-    { role: 'user', content: message, attachments: ctx.attachments || [] },
+    userMsg,
     {
       role: 'assistant',
       routedMode: ctx.target,
@@ -233,10 +279,11 @@ async function persist(chat, message, ctx, result, stopped = false) {
       model: result?.model,
       steps: ctx.steps.map((s) => (s.status === 'active' ? { ...s, status: stopped ? 'error' : 'done' } : s)),
       stopped,
+      ...(variants && { variants }),
     }
   );
   await chat.save();
-  return chat.messages[chat.messages.length - 1];
+  return publicMsg(chat.messages[chat.messages.length - 1]);
 }
 
 async function refund(user) {
@@ -247,8 +294,9 @@ async function refund(user) {
 
 /* ───────────────────────── POST /api/chat/stream ───────────────────────── */
 exports.streamMessage = async (req, res) => {
-  const { message, selectedMode, files, chat } = await prepare(req);
-  if (!message && !files.length) return res.status(400).json({ message: 'Message is empty' });
+  const { message, selectedMode, files, chat, regen, error } = await prepare(req);
+  if (error) return res.status(400).json({ message: error });
+  if (!message && !files.length && !regen) return res.status(400).json({ message: 'Message is empty' });
 
   res.status(200).set({
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -257,6 +305,10 @@ exports.streamMessage = async (req, res) => {
     'X-Accel-Buffering': 'no', // disable nginx/proxy buffering
   });
   res.flushHeaders();
+  // 2 KB padding: some proxies/CDNs hold back the first bytes of a response — this pushes
+  // the stream past their buffer so the first words reach the browser immediately.
+  res.write(`:${' '.repeat(2048)}\n\n`);
+  res.flush?.();
 
   const send = (event, data) => {
     if (res.writableEnded) return;
@@ -268,16 +320,16 @@ exports.streamMessage = async (req, res) => {
   const heartbeat = setInterval(() => { if (!res.writableEnded) { res.write(': ping\n\n'); res.flush?.(); } }, 15000);
 
   const ctx = { steps: [], text: '', images: [], target: selectedMode, attachments: [] };
-  send('meta', { chatId: chat._id, title: chat.title, mode: chat.mode });
+  send('meta', { chatId: chat._id, title: chat.title, mode: chat.mode, regenerate: Boolean(regen) });
 
   try {
-    const result = await runPipeline({ req, chat, message, selectedMode, files, emit: send, signal: ac.signal, ctx });
-    const saved = await persist(chat, message, ctx, result);
+    const result = await runPipeline({ req, chat, message, selectedMode, files, emit: send, signal: ac.signal, ctx, regen });
+    const saved = await persist(chat, message, ctx, result, false, regen);
     send('done', { chatId: chat._id, title: chat.title, routedMode: ctx.target, message: saved });
   } catch (err) {
     if (ac.signal.aborted || err.aborted) {
       // user pressed Stop / closed the tab — keep whatever was produced
-      if (ctx.text.trim() || ctx.images.some(Boolean)) await persist(chat, message, ctx, null, true).catch(() => {});
+      if (ctx.text.trim() || ctx.images.some(Boolean)) await persist(chat, message, ctx, null, true, regen).catch(() => {});
       else await refund(req.user);
     } else {
       console.error('[chat/stream]', err.message);
@@ -292,12 +344,13 @@ exports.streamMessage = async (req, res) => {
 
 /* ───────────────────────── POST /api/chat/send (non-streaming) ───────────────────────── */
 exports.sendMessage = async (req, res) => {
-  const { message, selectedMode, files, chat } = await prepare(req);
-  if (!message && !files.length) return res.status(400).json({ message: 'Message is empty' });
+  const { message, selectedMode, files, chat, regen, error } = await prepare(req);
+  if (error) return res.status(400).json({ message: error });
+  if (!message && !files.length && !regen) return res.status(400).json({ message: 'Message is empty' });
   const ctx = { steps: [], text: '', images: [], target: selectedMode, attachments: [] };
   try {
-    const result = await runPipeline({ req, chat, message, selectedMode, files, emit: () => {}, ctx });
-    const saved = await persist(chat, message, ctx, result);
+    const result = await runPipeline({ req, chat, message, selectedMode, files, emit: () => {}, ctx, regen });
+    const saved = await persist(chat, message, ctx, result, false, regen);
     res.json({ chatId: chat._id, title: chat.title, mode: chat.mode, routedMode: ctx.target, message: saved });
   } catch (err) {
     await refund(req.user);
@@ -315,7 +368,9 @@ exports.getChat = async (req, res) => {
   if (!validId(req.params.id)) return res.status(404).json({ message: 'Chat not found' });
   const chat = await ChatHistory.findOne({ _id: req.params.id, user: req.user._id });
   if (!chat) return res.status(404).json({ message: 'Chat not found' });
-  res.json({ chat });
+  const out = chat.toObject();
+  out.messages = out.messages.map(publicMsg);
+  res.json({ chat: out });
 };
 
 exports.renameChat = async (req, res) => {

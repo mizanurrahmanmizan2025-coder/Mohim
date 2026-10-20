@@ -77,11 +77,37 @@ function collectKeys(...prefixes) {
   return [...new Set(keys)];
 }
 
+const CF_ACCOUNT = /^[a-f0-9]{32}$/i; // Cloudflare account IDs are 32 hex characters
+const keyWarnings = {};
+
+/** Cloudflare needs Account ID + API token. Accepts "ACCOUNT:TOKEN", "TOKEN:ACCOUNT",
+    or plain tokens with CLOUDFLARE_ACCOUNT_ID (also read from an ID placed inside the key list). */
 function cloudflareKeys() {
-  const defaultAccount = clean(process.env.CLOUDFLARE_ACCOUNT_ID);
-  return collectKeys('CLOUDFLARE')
-    .map((k) => (k.includes(':') ? k : defaultAccount ? `${defaultAccount}:${k}` : null))
-    .filter(Boolean);
+  const raw = collectKeys('CLOUDFLARE');
+  let defaultAccount = clean(process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID);
+  if (!defaultAccount) defaultAccount = raw.find((k) => CF_ACCOUNT.test(k)) || ''; // ID pasted into the key list
+
+  const out = [];
+  let missing = 0;
+  for (const k of raw) {
+    if (CF_ACCOUNT.test(k)) continue; // that's an account ID, not a token
+    const i = k.indexOf(':');
+    if (i > 0) {
+      const [a, b] = [k.slice(0, i).trim(), k.slice(i + 1).trim()];
+      if (CF_ACCOUNT.test(a)) out.push(`${a}:${b}`);
+      else if (CF_ACCOUNT.test(b)) out.push(`${b}:${a}`); // written TOKEN:ACCOUNT
+      else out.push(`${a}:${b}`);
+    } else if (defaultAccount) {
+      out.push(`${defaultAccount}:${k}`);
+    } else {
+      missing += 1;
+    }
+  }
+  if (missing) {
+    keyWarnings.cloudflare = `${missing} token(s) ignored — Account ID missing. Set CLOUDFLARE_ACCOUNT_ID, or write keys as ACCOUNT_ID:TOKEN.`;
+    console.warn(`[apiKeys] Cloudflare: ${keyWarnings.cloudflare}`);
+  }
+  return [...new Set(out)];
 }
 
 /* ───────────────────────── Model guard ───────────────────────── */
@@ -164,7 +190,8 @@ const providers = {
     label: 'Pollinations',
     type: 'image',
     model: process.env.POLLINATIONS_MODEL || 'flux',
-    keys: ['keyless'], // always available; the optional POLLINATIONS_API_KEY is used by pollinationsService
+    apiKeys: collectKeys('POLLINATIONS'), // optional sk_ keys → clean images without logo
+    keys: ['keyless'], // the provider itself is always available (keyless fallback)
   },
 };
 
@@ -230,6 +257,6 @@ console.log(`[chains] TEXT   ${fmt(chains.text)}`);
 console.log(`[chains] CODE   ${fmt(chains.code)}`);
 console.log(`[chains] VISION ${fmt(chains.vision)}`);
 console.log(`[chains] IMAGE  ${fmt(chains.image)}`);
-console.log(`[keys] ${Object.values(providers).filter((p) => p.name !== 'pollinations').map((p) => `${p.name}:${p.keys.length}`).join(' ')}`);
+console.log(`[keys] ${Object.values(providers).map((p) => `${p.name}:${p.name === 'pollinations' ? p.apiKeys.length : p.keys.length}`).join(' ')}`);
 
-module.exports = { providers, chains, chainFor, poolFor, PROVIDER_LABEL, labelOf, DEFAULT_MODELS };
+module.exports = { providers, chains, chainFor, poolFor, PROVIDER_LABEL, labelOf, DEFAULT_MODELS, keyWarnings };
