@@ -24,7 +24,12 @@
  */
 const crypto = require('crypto');
 
-const API_KEY = (process.env.POLLINATIONS_API_KEY || '').trim();
+// Accepts POLLINATIONS_API_KEY or POLLINATIONS_API_KEYS (comma list → rotated)
+const API_KEYS = [process.env.POLLINATIONS_API_KEYS, process.env.POLLINATIONS_API_KEY]
+  .filter(Boolean).flatMap((v) => v.split(/[,\n]+/)).map((k) => k.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+const API_KEY = API_KEYS[0] || '';
+let keyIndex = 0;
+const nextApiKey = () => API_KEYS[keyIndex++ % API_KEYS.length];
 const GEN_URL = process.env.POLLINATIONS_GEN_URL || 'https://gen.pollinations.ai/image/';
 const LEGACY_URL = process.env.POLLINATIONS_BASE_URL || 'https://image.pollinations.ai/prompt/';
 const DEFAULT_MODEL = process.env.POLLINATIONS_MODEL || 'flux';
@@ -87,7 +92,7 @@ async function fetchCleanImage({ p, w, h, s, m }) {
   const t = setTimeout(() => ctrl.abort(), 120000); // generation can take a while
   try {
     const res = await fetch(`${GEN_URL}${encodeURIComponent(p)}?${q.toString()}`, {
-      headers: { Authorization: `Bearer ${API_KEY}` },
+      headers: { Authorization: `Bearer ${nextApiKey()}` },
       signal: ctrl.signal,
     });
     if (!res.ok) {
@@ -106,7 +111,7 @@ async function fetchCleanImage({ p, w, h, s, m }) {
 }
 
 if (!API_KEY) {
-  console.warn('[images] POLLINATIONS_API_KEY not set — using anonymous endpoint; images may carry a Pollinations logo.');
+  console.warn('[images] POLLINATIONS_API_KEY(S) not set — using anonymous endpoint; images may carry a Pollinations logo.');
 }
 
 module.exports = { generateImages, buildImageUrl, verifyRenderRequest, fetchCleanImage, SIZES, hasKey: Boolean(API_KEY) };

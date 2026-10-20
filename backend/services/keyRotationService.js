@@ -4,7 +4,7 @@
  * - 429 → key sits out for KEY_COOLDOWN_MS (or the provider's Retry-After).
  * - 401/403 → key parked for an hour (invalid / revoked / no access).
  */
-const { providers, poolFor, chains } = require('../config/apiKeys');
+const { providers, poolFor, chains, keyWarnings } = require('../config/apiKeys');
 
 const COOLDOWN_MS = Number(process.env.KEY_COOLDOWN_MS || 60000);
 const state = {};
@@ -56,7 +56,8 @@ function getPoolStatus() {
       provider: p.name,
       label: p.label,
       model: p.model,
-      totalKeys: p.name === 'pollinations' ? 0 : p.keys.length,
+      totalKeys: p.name === 'pollinations' ? p.apiKeys.length : p.keys.length,
+      note: keyWarnings[p.name] || (p.name === 'pollinations' && !p.apiKeys.length ? 'Keyless mode — images may carry a logo' : undefined),
       coolingDown: p.keys.filter((k) => (s(p.name).cooldownUntil[k] || 0) > now).length,
       stats: s(p.name).stats,
     }));
