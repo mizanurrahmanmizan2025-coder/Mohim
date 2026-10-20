@@ -1,3 +1,13 @@
+/**
+ * controllers/chatController.js
+ *
+ * Main "Chat" mode now auto-routes every message:
+ *   image → Pollinations images   code → Code Expert prompt   search → live web research
+ *   url → page scraping           document → file/vision analysis   writer → content writer
+ *   general → normal chat
+ * When the user picks a specific sidebar mode, that mode is respected (no routing).
+ * The assistant message stores `routedMode` so the UI can show which tool answered.
+ */
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const ChatHistory = require('../models/ChatHistory');
@@ -7,16 +17,72 @@ const { getMode, modes } = require('../services/modes');
 const { processFiles } = require('../services/documentService');
 const { scrape, extractUrls } = require('../services/webScraperService');
 const { generateImages, SIZES } = require('../services/pollinationsService');
+const { routeIntent, detectImageSize, detectImageCount } = require('../services/intentRouter');
+const { webSearch } = require('../services/webSearchService');
 const { enhancePrompt } = require('./imageController');
 
 const HISTORY_TURNS = 20;
 const validId = (id) => mongoose.isValidObjectId(id);
 const makeTitle = (s) => (s || 'New chat').replace(/\s+/g, ' ').trim().slice(0, 60) || 'New chat';
 
-// POST /api/chat/send   (multipart/form-data: message, mode, chatId?, imageSize?, files[])
+/* ───────────────────────── Tool handlers ───────────────────────── */
+
+async function handleImage({ message, route, imageSize, imageCount }) {
+  const prompt = route?.imagePrompt || (await enhancePrompt(message));
+  const size = SIZES[imageSize] ? imageSize : route?.imageSize || detectImageSize(message);
+  const count = Number(imageCount) || route?.imageCount || detectImageCount(message);
+  const images = generateImages(prompt, { size, count });
+  return {
+    content: `**Prompt used:**\n\n> ${prompt}\n\nClick an image to open it full size, or use the download button.`,
+    images,
+    provider: 'pollinations',
+  };
+}
+
+async function handleSearch({ message, route, history }) {
+  const system = getMode('url').system.replace('web pages whose extracted text is provided to you', 'questions using live web search results');
+  const result = await webSearch(route?.searchQuery || message, { system, history });
+  if (result) return { content: result.text, provider: result.provider, model: result.model };
+
+  // no search backend available → answer from model knowledge, clearly labelled
+  const out = await generate({
+    system: `${getMode('general').system}\nLive web search is unavailable right now. Answer from your knowledge, and say clearly that the information may be out of date.`,
+    messages: [...history, { role: 'user', content: message }],
+  });
+  return { content: out.text, provider: out.provider, model: out.model };
+}
+
+async function handleText({ modeKey, message, doc, history }) {
+  const mode = getMode(modeKey);
+  let context = '';
+
+  if (doc.text) context += `\n\nThe user attached these files:\n${doc.text}`;
+
+  // read any links in the message (Web Analyzer behaviour works in every text mode)
+  for (const u of extractUrls(message)) {
+    try {
+      const page = await scrape(u);
+      context += `\n\n--- WEB PAGE: ${page.title} (${page.url}) ---\n${page.description}\n${page.text}`;
+    } catch (err) {
+      context += `\n\n[Could not read ${u}: ${err.message}]`;
+    }
+  }
+
+  const current = { role: 'user', content: (message || 'Analyse the attached file(s).') + context, images: doc.images };
+  const out = await generate({
+    system: mode.system,
+    messages: [...history, current],
+    temperature: mode.temperature,
+    vision: doc.images.length > 0,
+  });
+  return { content: out.text, provider: out.provider, model: out.model };
+}
+
+/* ───────────────────────── POST /api/chat/send ─────────────────────────
+   multipart/form-data: message, mode, chatId?, imageSize?, imageCount?, files[] */
 exports.sendMessage = async (req, res) => {
   const message = String(req.body.message || '').trim();
-  const modeKey = modes[req.body.mode] ? req.body.mode : 'general';
+  const selectedMode = modes[req.body.mode] ? req.body.mode : 'general';
   const files = req.files || [];
   if (!message && !files.length) return res.status(400).json({ message: 'Message is empty' });
 
@@ -25,61 +91,46 @@ exports.sendMessage = async (req, res) => {
   if (req.body.chatId && validId(req.body.chatId)) {
     chat = await ChatHistory.findOne({ _id: req.body.chatId, user: req.user._id });
   }
-  if (!chat) chat = new ChatHistory({ user: req.user._id, mode: modeKey, title: makeTitle(message || files[0]?.originalname) });
+  if (!chat) chat = new ChatHistory({ user: req.user._id, mode: selectedMode, title: makeTitle(message || files[0]?.originalname) });
 
-  const doc = await processFiles(files);
-  const userMsg = { role: 'user', content: message, attachments: doc.meta };
+  const history = chat.messages
+    .slice(-HISTORY_TURNS)
+    .map((m) => ({ role: m.role, content: m.content || '', routedMode: m.routedMode }));
 
   try {
-    let assistant;
-
-    /* ───── Image generation mode ───── */
-    if (modeKey === 'image') {
-      const size = SIZES[req.body.imageSize] ? req.body.imageSize : 'landscape';
-      const finalPrompt = await enhancePrompt(message);
-      const images = generateImages(finalPrompt, { size, count: Number(req.body.imageCount) || 2 });
-      assistant = {
-        role: 'assistant',
-        content: `**Prompt used:**\n\n> ${finalPrompt}\n\nClick an image to open it full size, or download it.`,
-        images,
-        provider: 'pollinations',
-      };
-    } else {
-      /* ───── Text / vision modes ───── */
-      const mode = getMode(modeKey);
-      let context = '';
-
-      if (doc.text) context += `\n\nThe user attached these files:\n${doc.text}`;
-
-      const urls = extractUrls(message);
-      if (urls.length && (modeKey === 'url' || modeKey === 'general' || modeKey === 'writer')) {
-        for (const u of urls) {
-          try {
-            const page = await scrape(u);
-            context += `\n\n--- WEB PAGE: ${page.title} (${page.url}) ---\n${page.description}\n${page.text}`;
-          } catch (err) {
-            context += `\n\n[Could not read ${u}: ${err.message}]`;
-          }
-        }
-      }
-
-      const history = chat.messages.slice(-HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content || '' }));
-      const current = { role: 'user', content: (message || 'Analyse the attached file(s).') + context, images: doc.images };
-
-      const out = await generate({
-        system: mode.system,
-        messages: [...history, current],
-        temperature: mode.temperature,
-        vision: doc.images.length > 0,
-      });
-      assistant = { role: 'assistant', content: out.text, provider: out.provider, model: out.model };
+    /* 1. decide which tool handles this message */
+    let route = null;
+    let target = selectedMode;
+    if (selectedMode === 'general') {
+      route = await routeIntent({ message, files, history });
+      target = route.intent;
+      console.log(`[router] "${message.slice(0, 60)}" → ${target} (${route.source})`);
     }
 
-    chat.messages.push(userMsg, assistant);
+    /* 2. run it */
+    const doc = await processFiles(files);
+    const llmHistory = history.map(({ role, content }) => ({ role, content }));
+    let result;
+
+    if (target === 'image' && !files.length) {
+      result = await handleImage({ message, route, imageSize: req.body.imageSize, imageCount: req.body.imageCount });
+    } else if (target === 'search' && !files.length) {
+      result = await handleSearch({ message, route, history: llmHistory });
+    } else {
+      const modeKey = target === 'image' || target === 'search' ? 'document' : target; // files present → analyse them
+      result = await handleText({ modeKey, message, doc, history: llmHistory });
+      target = modeKey;
+    }
+
+    /* 3. save + respond */
+    chat.messages.push(
+      { role: 'user', content: message, attachments: doc.meta },
+      { role: 'assistant', routedMode: target, ...result }
+    );
     await chat.save();
     const saved = chat.messages[chat.messages.length - 1];
 
-    res.json({ chatId: chat._id, title: chat.title, mode: chat.mode, message: saved });
+    res.json({ chatId: chat._id, title: chat.title, mode: chat.mode, routedMode: target, message: saved });
   } catch (err) {
     // refund the quota for a request that produced nothing
     req.user.usage.hourCount = Math.max(0, req.user.usage.hourCount - 1);
@@ -88,6 +139,8 @@ exports.sendMessage = async (req, res) => {
     res.status(err.status || 500).json({ message: err.message || 'Something went wrong' });
   }
 };
+
+/* ───────────────────────── History endpoints (unchanged) ───────────────────────── */
 
 // GET /api/chats
 exports.listChats = async (req, res) => {
@@ -140,7 +193,7 @@ exports.toggleShare = async (req, res) => {
 // GET /api/share/:shareId   (public, read-only)
 exports.getShared = async (req, res) => {
   const chat = await ChatHistory.findOne({ shareId: String(req.params.shareId), isPublic: true })
-    .select('title mode messages.role messages.content messages.images messages.createdAt createdAt')
+    .select('title mode messages.role messages.content messages.images messages.routedMode messages.createdAt createdAt')
     .populate('user', 'name');
   if (!chat) return res.status(404).json({ message: 'This shared chat does not exist or is no longer public' });
   res.json({ chat: { title: chat.title, mode: chat.mode, author: chat.user?.name, messages: chat.messages, createdAt: chat.createdAt } });

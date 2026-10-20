@@ -8,6 +8,7 @@ const messageSchema = new mongoose.Schema(
     images: [String], // generated image URLs
     provider: String, // which AI provider answered
     model: String,
+    routedMode: String, // which tool the auto-router used (image, code, search, ...)
   },
   { timestamps: true }
 );

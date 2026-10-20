@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const multer = require('multer');
+const rateLimit = require('express-rate-limit');
 const a = require('../middleware/asyncHandler');
 const { protect } = require('../middleware/authMiddleware');
 const { expiryCheck } = require('../middleware/expiryCheck');
@@ -14,8 +15,12 @@ const upload = multer({
 
 const gated = [a(protect), expiryCheck, a(usageLimit)];
 
-// public share link (no auth)
+// image proxy: generous per-IP limit (a chat page loads several images at once)
+const renderLimiter = rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
+
+// public (no auth)
 router.get('/share/:shareId', a(chat.getShared));
+router.get('/images/render', renderLimiter, a(image.render)); // signed URLs only
 
 // AI endpoints (auth + expiry + quota)
 router.post('/chat/send', a(protect), expiryCheck, upload.array('files', 5), a(usageLimit), a(chat.sendMessage));
