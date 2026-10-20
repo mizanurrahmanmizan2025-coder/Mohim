@@ -57,9 +57,17 @@ function detectImageSize(text) {
   return 'landscape'; // thumbnails, scenes, wallpapers (16:9)
 }
 
+function detectImageQuality(text) {
+  if (/\b(4k|uhd|ultra[- ]?hd|ultra high)\b/i.test(text)) return '4k';
+  if (/\b(hd|2k|1080p?|high[- ]?(res|resolution|quality)|full hd|print quality|sharp|crisp)\b|এইচডি|হাই কোয়ালিটি/i.test(text)) return 'hd';
+  return 'standard';
+}
+
+const DEFAULT_COUNT = Math.min(Math.max(Number(process.env.IMAGE_DEFAULT_COUNT || 1), 1), 4);
+
 function detectImageCount(text) {
   const m = text.match(/\b([1-4]|one|two|three|four)\s+(images|pictures|photos|variations|versions|options|logos|thumbnails)\b/i);
-  if (!m) return 2;
+  if (!m) return DEFAULT_COUNT;
   const words = { one: 1, two: 2, three: 3, four: 4 };
   return Number(words[m[1].toLowerCase()] || m[1]);
 }
@@ -91,7 +99,7 @@ function ruleRoute(message, files = [], history = []) {
   const imgVerb = P.imgVerb.test(text);
   const imgNoun = P.imgNoun.test(text);
   if (!isHowTo && ((imgVerb && imgNoun) || P.imgDirect.test(text))) {
-    return wrap('image', 'high', 'rules:image', { imageSize: detectImageSize(text), imageCount: detectImageCount(text) });
+    return wrap('image', 'high', 'rules:image', { imageSize: detectImageSize(text), imageCount: detectImageCount(text), imageQuality: detectImageQuality(text) });
   }
 
   if (P.searchExplicit.test(text)) return wrap('search', 'high', 'rules:search', { searchQuery: text });
@@ -101,7 +109,7 @@ function ruleRoute(message, files = [], history = []) {
   // ── weaker signals → ask the classifier ──
   const prev = lastAssistant(history);
   if (prev?.routedMode === 'image' && P.imgEditFollowUp.test(text) && text.length < 200) {
-    return wrap('image', 'medium', 'rules:image-followup', { imageSize: detectImageSize(text), imageCount: detectImageCount(text) });
+    return wrap('image', 'medium', 'rules:image-followup', { imageSize: detectImageSize(text), imageCount: detectImageCount(text), imageQuality: detectImageQuality(text) });
   }
   if (imgNoun && imgVerb) return wrap('general', 'medium', 'rules:image-howto'); // "how do I make a logo?" → explain, unless classifier says otherwise
   if (P.timeSensitive.test(text)) return wrap('search', 'medium', 'rules:time', { searchQuery: text });
@@ -119,7 +127,7 @@ const CLASSIFIER_SYSTEM = `You are an intent router for an AI assistant. Read th
 - "writer": long-form or marketing content (blog post, article, captions, emails, scripts, SEO copy).
 - "general": everything else (chat, advice, explanations, math, how-to questions — including "how do I create an image in Photoshop").
 Reply with ONLY minified JSON, no markdown:
-{"intent":"...","image_prompt":"<if image: a detailed English visual prompt, merging changes with the previous image prompt if it is a follow-up; else empty>","image_size":"landscape|square|portrait|wide","image_count":1-4,"search_query":"<if search: a concise English web search query; else empty>"}`;
+{"intent":"...","image_prompt":"<if image: a detailed English visual prompt, merging changes with the previous image prompt if it is a follow-up; else empty>","image_size":"landscape|square|portrait|wide","image_quality":"standard|hd|4k","image_count":1-4,"search_query":"<if search: a concise English web search query; else empty>"}`;
 
 function parseJson(text) {
   const m = (text || '').match(/\{[\s\S]*\}/);
@@ -135,6 +143,7 @@ async function llmRoute(message, history) {
   const userText = `${context ? `Recent conversation:\n${context}\n\n` : ''}Latest user message:\n${message.slice(0, 2000)}`;
 
   const call = generate({
+    feature: 'text',
     system: CLASSIFIER_SYSTEM,
     messages: [{ role: 'user', content: userText }],
     temperature: 0,
@@ -148,7 +157,8 @@ async function llmRoute(message, history) {
   return wrap(j.intent, 'high', `llm:${out.provider}`, {
     imagePrompt: j.image_prompt || undefined,
     imageSize: ['landscape', 'square', 'portrait', 'wide'].includes(j.image_size) ? j.image_size : detectImageSize(message),
-    imageCount: Math.min(Math.max(Number(j.image_count) || 2, 1), 4),
+    imageCount: Math.min(Math.max(Number(j.image_count) || DEFAULT_COUNT, 1), 4),
+    imageQuality: ['standard', 'hd', '4k'].includes(j.image_quality) ? j.image_quality : detectImageQuality(message),
     searchQuery: j.search_query || message,
   });
 }
@@ -170,4 +180,4 @@ async function routeIntent({ message = '', files = [], history = [] }) {
   }
 }
 
-module.exports = { routeIntent, ruleRoute, detectImageSize, detectImageCount };
+module.exports = { routeIntent, ruleRoute, detectImageSize, detectImageCount, detectImageQuality };

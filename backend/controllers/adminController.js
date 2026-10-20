@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const ChatHistory = require('../models/ChatHistory');
 const PromptTemplate = require('../models/PromptTemplate');
-const { getPoolStatus } = require('../services/keyRotationService');
+const { getPoolStatus, getChains } = require('../services/keyRotationService');
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -17,7 +17,7 @@ exports.stats = async (req, res) => {
     User.countDocuments({ role: 'user', expiryDate: { $ne: null, $lt: now } }),
     ChatHistory.estimatedDocumentCount(),
   ]);
-  res.json({ users: { total, active, suspended, blocked, expired }, chats, providers: getPoolStatus() });
+  res.json({ users: { total, active, suspended, blocked, expired }, chats, providers: getPoolStatus(), chains: getChains() });
 };
 
 // GET /api/admin/users?search=&status=&page=1

@@ -9,6 +9,8 @@ const messageSchema = new mongoose.Schema(
     provider: String, // which AI provider answered
     model: String,
     routedMode: String, // which tool the auto-router used (image, code, search, ...)
+    steps: [{ _id: false, id: String, label: String, status: String, detail: String }], // live-progress log
+    stopped: Boolean, // user pressed Stop while it was generating
   },
   { timestamps: true }
 );

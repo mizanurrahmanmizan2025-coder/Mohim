@@ -14,19 +14,22 @@ const upload = multer({
 });
 
 const gated = [a(protect), expiryCheck, a(usageLimit)];
+const sendGate = [a(protect), expiryCheck, upload.array('files', 5), a(usageLimit)];
 
-// image proxy: generous per-IP limit (a chat page loads several images at once)
-const renderLimiter = rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
+// image endpoints that <img> tags load: generous per-IP limit
+const imageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 180, standardHeaders: true, legacyHeaders: false });
 
-// public (no auth)
+/* public (no auth) */
 router.get('/share/:shareId', a(chat.getShared));
-router.get('/images/render', renderLimiter, a(image.render)); // signed URLs only
+router.get('/images/render', imageLimiter, a(image.render)); // signed Pollinations proxy
+router.get('/images/file/:key', imageLimiter, a(image.file)); // stored generated images
 
-// AI endpoints (auth + expiry + quota)
-router.post('/chat/send', a(protect), expiryCheck, upload.array('files', 5), a(usageLimit), a(chat.sendMessage));
+/* AI endpoints (auth + expiry + quota) */
+router.post('/chat/stream', ...sendGate, a(chat.streamMessage)); // live step-by-step (SSE)
+router.post('/chat/send', ...sendGate, a(chat.sendMessage)); // same pipeline, single JSON reply
 router.post('/images/generate', ...gated, a(image.generate));
 
-// history (auth only — expired users can still read/export their old chats)
+/* history (auth only — expired users can still read/export old chats) */
 router.get('/chats', a(protect), a(chat.listChats));
 router.get('/chats/:id', a(protect), a(chat.getChat));
 router.patch('/chats/:id', a(protect), a(chat.renameChat));

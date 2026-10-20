@@ -45,8 +45,8 @@ const sign = (p, w, h, s, m) =>
   crypto.createHmac('sha256', secret()).update(`${p}|${w}|${h}|${s}|${m}`).digest('base64url').slice(0, 32);
 
 /** Builds the browser-facing URL for one image. */
-function buildImageUrl(prompt, { size = 'landscape', model = DEFAULT_MODEL, seed } = {}) {
-  const [w, h] = SIZES[size] || SIZES.landscape;
+function buildImageUrl(prompt, { size = 'landscape', model = DEFAULT_MODEL, seed, width, height } = {}) {
+  const [w, h] = width && height ? [width, height] : SIZES[size] || SIZES.landscape;
   const p = String(prompt).replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT);
   const s = String(seed ?? Math.floor(Math.random() * 1e9));
 
