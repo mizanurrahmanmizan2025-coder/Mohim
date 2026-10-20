@@ -47,6 +47,64 @@ async function request(path, { method = 'GET', body, form, signal } = {}) {
   return data;
 }
 
+/**
+ * POST multipart form and read Server-Sent Events as they arrive.
+ * onEvent(eventName, data) is called for each event (step, delta, image_progress, done, …).
+ * Non-SSE replies (validation, quota, expired account) are thrown as ApiError.
+ */
+export async function streamRequest(path, form, { onEvent, signal } = {}) {
+  const headers = { Accept: 'text/event-stream' };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let res;
+  try {
+    res = await fetch(`${BASE}/api${path}`, { method: 'POST', headers, body: form, signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+    throw new ApiError('Network error — check your connection.', 0);
+  }
+
+  const type = res.headers.get('content-type') || '';
+  if (!res.ok || !type.includes('text/event-stream')) {
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 && token) {
+      setToken(null);
+      window.dispatchEvent(new Event('auth:logout'));
+    }
+    throw new ApiError(data.message || `Request failed (${res.status})`, res.status, data.code);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let finished = false;
+  const SEP = /\r?\n\r?\n/;
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let m;
+    while ((m = SEP.exec(buf))) {
+      const block = buf.slice(0, m.index);
+      buf = buf.slice(m.index + m[0].length);
+      let event = 'message';
+      let data = '';
+      for (const line of block.split(/\r?\n/)) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) data += line.slice(5).trim();
+      }
+      if (!data) continue; // heartbeat comments
+      let parsed;
+      try { parsed = JSON.parse(data); } catch { continue; }
+      if (event === 'done' || event === 'error') finished = true;
+      onEvent?.(event, parsed);
+    }
+  }
+  if (!finished) throw new ApiError('Connection lost before the answer finished. Please try again.', 0);
+}
+
 export const api = {
   get: (p, o) => request(p, o),
   post: (p, body, o) => request(p, { ...o, method: 'POST', body }),

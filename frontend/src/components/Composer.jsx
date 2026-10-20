@@ -13,7 +13,7 @@ const MAX_FILES = 5;
 const MAX_SIZE = 10 * 1024 * 1024;
 
 export default function Composer({ draft, setDraft, disabled }) {
-  const { send, sending, stop, mode, imageSize, setImageSize } = useChat();
+  const { send, sending, stop, mode, imageSize, setImageSize, imageQuality, setImageQuality } = useChat();
   const [files, setFiles] = useState([]);
   const [fileError, setFileError] = useState('');
   const taRef = useRef(null);
@@ -122,7 +122,19 @@ export default function Composer({ draft, setDraft, disabled }) {
                 <option value="landscape">16:9 Thumbnail</option>
                 <option value="square">1:1 Square</option>
                 <option value="portrait">9:16 Story</option>
-                <option value="wide">3:1 Banner</option>
+                <option value="wide">21:9 Banner</option>
+              </select>
+            )}
+            {mode === 'image' && (
+              <select
+                value={imageQuality}
+                onChange={(e) => setImageQuality(e.target.value)}
+                className="ml-1 rounded-full bg-white px-3 py-1.5 text-xs outline-none dark:bg-surface-dark"
+                title="Resolution (2K/4K use Gemini Nano Banana when available)"
+              >
+                <option value="standard">Standard 1K</option>
+                <option value="hd">HD 2K</option>
+                <option value="4k">Ultra 4K</option>
               </select>
             )}
             <span className={`ml-1 hidden items-center gap-1.5 text-xs sm:flex ${meta.color}`}>

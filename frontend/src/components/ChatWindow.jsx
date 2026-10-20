@@ -21,26 +21,47 @@ function accountBlock(user) {
 
 export default function ChatWindow({ onOpenMobile, draft, setDraft }) {
   const { user } = useAuth();
-  const { chat, mode, sending, error, setError, setShare, loadingChat } = useChat();
+  const { chat, mode, error, setError, setShare, loadingChat } = useChat();
   const [shareOpen, setShareOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('autoSpeak') === '1');
   const bottomRef = useRef(null);
-  const lastCount = useRef(0);
 
   const messages = chat?.messages || [];
   const meta = getModeMeta(chat?._id ? chat.mode : mode);
   const blockedMsg = accountBlock(user) || (BLOCKED_CODES.includes(error?.code) ? error.message : null);
 
+  const scrollRef = useRef(null);
+  const contentRef = useRef(null);
+  const stick = useRef(true); // follow the stream unless the user scrolled up
+  const lastLive = useRef(false);
+
+  // keep the newest content in view while it streams
   useEffect(() => {
+    const el = scrollRef.current;
+    const inner = contentRef.current;
+    if (!el || !inner || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => { if (stick.current) el.scrollTop = el.scrollHeight; });
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    stick.current = true;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    // auto read-aloud new assistant replies
-    if (messages.length > lastCount.current && lastCount.current > 0) {
-      const last = messages[messages.length - 1];
-      if (autoSpeak && last?.role === 'assistant') speak(last.content);
-    }
-    lastCount.current = messages.length;
-  }, [messages.length, sending, autoSpeak]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages.length]);
+
+  // auto read-aloud when a live answer finishes
+  const last = messages[messages.length - 1];
+  useEffect(() => {
+    if (lastLive.current && last && !last.live && last.role === 'assistant' && autoSpeak && last.content) speak(last.content);
+    lastLive.current = Boolean(last?.live);
+  }, [last?.live]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  };
 
   useEffect(() => () => stopSpeaking(), []);
 
@@ -88,8 +109,8 @@ export default function ChatWindow({ onOpenMobile, draft, setDraft }) {
       </header>
 
       {/* messages */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-4 pb-6 sm:px-6">
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto">
+        <div ref={contentRef} className="mx-auto w-full max-w-3xl px-4 pb-6 sm:px-6">
           {loadingChat && <div className="py-10"><TypingIndicator label="Loading chat" /></div>}
 
           {!loadingChat && messages.length === 0 && (
@@ -110,8 +131,7 @@ export default function ChatWindow({ onOpenMobile, draft, setDraft }) {
           )}
 
           <div className="space-y-8 pt-4">
-            {messages.map((m) => <MessageBubble key={m._id} msg={m} />)}
-            {sending && <TypingIndicator label={mode === 'image' ? 'Creating images' : 'Thinking'} />}
+            {messages.map((m) => <MessageBubble key={m.clientKey || m._id} msg={m} />)}
           </div>
 
           {error && !BLOCKED_CODES.includes(error.code) && (

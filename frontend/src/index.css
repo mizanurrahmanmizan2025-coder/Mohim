@@ -49,3 +49,28 @@
 /* Gemini-style shimmering star while thinking */
 @keyframes spin-slow { to { transform: rotate(360deg) } }
 .thinking-star { animation: spin-slow 2.5s linear infinite; }
+
+/* ───── live progress ───── */
+@keyframes shimmer { 0% { background-position: -200% 0 } 100% { background-position: 200% 0 } }
+.shimmer-text {
+  background: linear-gradient(90deg, currentColor 0%, currentColor 35%, #8ab4f8 50%, currentColor 65%, currentColor 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+.canvas-shimmer {
+  background: linear-gradient(110deg, transparent 20%, rgba(255,255,255,.35) 40%, transparent 60%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+.dark .canvas-shimmer { background-image: linear-gradient(110deg, transparent 20%, rgba(255,255,255,.07) 40%, transparent 60%); }
+
+/* blinking caret while text streams */
+@keyframes caret { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
+.stream-caret {
+  display: inline-block; width: .55em; height: 1.1em; margin-left: 2px;
+  vertical-align: text-bottom; border-radius: 2px;
+  background: currentColor; opacity: .7; animation: caret 1s step-end infinite;
+}

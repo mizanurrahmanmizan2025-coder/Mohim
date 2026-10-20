@@ -236,7 +236,7 @@ export default function AdminPanel() {
                 <span className="font-semibold capitalize">{i + 1}. {p.provider}</span>
                 <span className={`h-2.5 w-2.5 rounded-full ${p.totalKeys === 0 ? 'bg-gray-400' : p.coolingDown === p.totalKeys ? 'bg-red-500' : 'bg-emerald-500'}`} />
               </div>
-              <div className="mt-1 truncate font-mono text-xs text-gray-500">{p.model}</div>
+              <div className="mt-1 truncate font-mono text-xs text-gray-500">{p.label ? `${p.label} · ` : ''}{p.model}</div>
               <div className="mt-3 text-xs">
                 {p.totalKeys} keys · {p.coolingDown} cooling down<br />
                 ✓ {p.stats.success} · ✕ {p.stats.failed} · 429 {p.stats.rateLimited}
@@ -244,7 +244,26 @@ export default function AdminPanel() {
             </div>
           ))}
         </div>
-        <p className="mt-3 text-xs text-gray-500">Counters reset when the server restarts. Keys are managed in Hostinger environment variables.</p>
+        {stats?.chains && (
+          <div className="mt-5 space-y-2 rounded-2xl bg-surface-card p-4 text-xs dark:bg-surface-darkcard">
+            <div className="mb-1 text-sm font-semibold">Fallback chains (tried left → right)</div>
+            {Object.entries(stats.chains).map(([feature, list]) => (
+              <div key={feature} className="flex flex-wrap items-center gap-1">
+                <span className="w-16 font-semibold uppercase text-gray-500">{feature}</span>
+                {list.map((e, i) => (
+                  <span key={`${e.provider}-${e.model}`} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-gray-400">→</span>}
+                    <span className={`rounded-full px-2 py-0.5 font-mono ${e.hasKeys ? 'bg-white dark:bg-surface-dark' : 'bg-transparent text-gray-400 line-through'}`} title={e.hasKeys ? '' : 'No keys configured — skipped'}>
+                      {e.provider}{e.model && e.provider !== 'pollinations' ? `:${e.model}` : ''}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            ))}
+            <p className="pt-1 text-gray-500">Change with CHAIN_TEXT / CHAIN_CODE / CHAIN_VISION / CHAIN_IMAGE env variables. Struck-through entries have no keys and are skipped.</p>
+          </div>
+        )}
+        <p className="mt-3 text-xs text-gray-500">Counters reset when the server restarts. Keys are managed in your hosting environment variables.</p>
       </section>
 
       {/* users */}
