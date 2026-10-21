@@ -28,7 +28,7 @@ const DEFAULT_MODELS = {
 };
 
 const DEFAULT_CHAINS = {
-  text: 'gemini,groq,deepseek,openrouter,mistral',
+  text: 'groq:openai/gpt-oss-120b,gemini,deepseek,openrouter,hfchat,mistral', // Groq first: fastest first token
   code: [
     'deepseek:deepseek-v4-pro',
     'gemini:gemini-3.8-flash',
@@ -37,6 +37,7 @@ const DEFAULT_CHAINS = {
     'openrouter:qwen/qwen3-coder:free',
     'mistral:codestral-latest',
     'openrouter:openrouter/free',
+    'hfchat',
   ].join(','),
   vision: 'gemini:gemini-3.8-flash,gemini:gemini-3.6-flash',
   image: [
@@ -176,6 +177,16 @@ const providers = {
     baseUrl: 'https://api.cloudflare.com/client/v4/accounts',
     model: '@cf/black-forest-labs/flux-1-schnell',
     keys: cloudflareKeys(),
+  },
+  hfchat: {
+    // Hugging Face Inference Providers — OpenAI-compatible chat (same HF token as image generation;
+    // the token needs the "Make calls to Inference Providers" permission)
+    name: 'hfchat',
+    label: 'Hugging Face',
+    type: 'openai',
+    baseUrl: 'https://router.huggingface.co/v1/chat/completions',
+    model: clean(process.env.HF_CHAT_MODEL) || 'openai/gpt-oss-120b',
+    keys: collectKeys('HUGGINGFACE', 'HF'),
   },
   huggingface: {
     name: 'huggingface',

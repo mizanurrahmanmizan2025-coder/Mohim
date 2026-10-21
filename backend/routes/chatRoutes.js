@@ -43,6 +43,6 @@ router.patch('/chats/:id', a(protect), a(chat.renameChat));
 router.delete('/chats/:id', a(protect), a(chat.deleteChat));
 router.post('/chats/:id/share', a(protect), a(chat.toggleShare));
 router.get('/templates', a(protect), a(chat.listTemplates));
-router.get('/models', a(protect), chat.listModels);
+router.get('/models', a(protect), a(chat.listModels));
 
 module.exports = router;

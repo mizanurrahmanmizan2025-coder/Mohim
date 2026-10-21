@@ -29,7 +29,7 @@ const { scrape, extractUrls } = require('../services/webScraperService');
 const { generateImages, SIZE_SPECS } = require('../services/imageService');
 const { routeIntent, detectImageSize, detectImageCount, detectImageQuality } = require('../services/intentRouter');
 const { webSearch } = require('../services/webSearchService');
-const { catalog, resolveModel } = require('../services/modelCatalog');
+const { getCatalog, resolveModel } = require('../services/modelCatalog');
 const { PROVIDER_LABEL, labelOf } = require('../config/apiKeys');
 const { enhancePrompt } = require('./imageController');
 
@@ -106,7 +106,7 @@ function adapter(ctx, emit, step, stepId) {
 /* ───────────────────────── the pipeline ───────────────────────── */
 async function runPipeline({ req, chat, message, selectedMode, files, emit, signal, ctx, regen }) {
   const step = tracker(ctx, emit);
-  const preferred = resolveModel(req.body.model); // Model Switcher pick (null = Auto)
+  const preferred = await resolveModel(req.body.model); // Model Switcher pick (null = Auto)
   const history = chat.messages.slice(-HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content || '', routedMode: m.routedMode }));
   const llmHistory = history.map(({ role, content }) => ({ role, content }));
 
@@ -429,8 +429,9 @@ exports.getShared = async (req, res) => {
 };
 
 // GET /api/models — options for the Model Switcher
-exports.listModels = (req, res) => {
-  res.json({ models: catalog() });
+exports.listModels = async (req, res) => {
+  res.set('Cache-Control', 'private, max-age=300');
+  res.json(await getCatalog()); // { models, defaultId }
 };
 
 exports.listTemplates = async (req, res) => {

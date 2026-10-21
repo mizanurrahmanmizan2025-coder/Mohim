@@ -64,6 +64,7 @@ const ORIGINS = {
   mistral: 'https://api.mistral.ai',
   cloudflare: 'https://api.cloudflare.com',
   huggingface: 'https://router.huggingface.co',
+  hfchat: 'https://router.huggingface.co',
 };
 
 async function warmOnce(names, health) {
