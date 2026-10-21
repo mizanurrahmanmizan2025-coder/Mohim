@@ -67,7 +67,8 @@ if (fs.existsSync(distDir)) {
 /* ───── Errors ───── */
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ message: 'File too large (max 10 MB)' });
+  if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ message: `File too large (max ${process.env.MAX_UPLOAD_MB || 25} MB per file)` });
+  if (err.code === 'LIMIT_FILE_COUNT') return res.status(413).json({ message: 'Too many files — zip the folder and upload the .zip instead' });
   if (err.name === 'MulterError') return res.status(400).json({ message: err.message });
   console.error(err);
   res.status(err.status || 500).json({ message: err.status ? err.message : 'Internal server error' });

@@ -43,6 +43,12 @@ You analyse documents and images the user uploads (OCR included). Quote figures 
     system: `${BASE}
 You analyse web pages whose extracted text is provided to you. Summarise faithfully, list key points, and never invent content that is not in the page text. Mention the page title and URL.`,
   },
+  search: {
+    label: 'Web Search',
+    temperature: 0.3,
+    system: `${BASE}
+You answer questions using live web search results. Be accurate, structured and concise, cite sources, and mention dates for time-sensitive facts.`,
+  },
   writer: {
     label: 'Content Writer',
     temperature: 0.8,

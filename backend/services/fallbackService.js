@@ -30,6 +30,7 @@ const IDLE_TIMEOUT_MS = Number(process.env.STREAM_IDLE_TIMEOUT_MS || 30000);
 const NONSTREAM_TIMEOUT_MS = Number(process.env.NONSTREAM_TIMEOUT_MS || 30000);
 const HEDGE_AFTER_MS = Number(process.env.HEDGE_AFTER_MS ?? 5000);
 const MAX_PARALLEL = Math.max(1, Number(process.env.MAX_PARALLEL_ATTEMPTS || 2));
+const PREFERRED_HEDGE_AFTER_MS = Number(process.env.PREFERRED_HEDGE_AFTER_MS ?? 15000); // 0 = never race a picked model
 const MAX_KEYS_PER_PROVIDER = Number(process.env.KEYS_PER_PROVIDER || 5);
 const MAX_QUEUE_WAIT_MS = Number(process.env.MAX_QUEUE_WAIT_MS || 10000);
 
@@ -278,7 +279,7 @@ const shortReason = (err) => {
 };
 
 /* ───────────────────────── race: sequential failover + hedging ───────────────────────── */
-function race({ chain, payload, emit, signal, streaming, errors }) {
+function race({ chain, payload, emit, signal, streaming, errors, hedgeMs = HEDGE_AFTER_MS }) {
   const picker = candidatePicker(chain);
   return new Promise((resolve, reject) => {
     const active = new Map(); // id → { ctrl, cand }
@@ -299,13 +300,13 @@ function race({ chain, payload, emit, signal, streaming, errors }) {
 
     const scheduleHedge = () => {
       clearTimeout(hedgeTimer);
-      if (!HEDGE_AFTER_MS || settled || winner !== null || active.size >= MAX_PARALLEL) return;
+      if (!hedgeMs || settled || winner !== null || active.size >= MAX_PARALLEL) return;
       hedgeTimer = setTimeout(() => {
         if (settled || winner !== null || active.size >= MAX_PARALLEL) return;
         const slow = [...active.values()].map((a) => PROVIDER_LABEL[a.cand.provider]).join(', ');
         if (launch(activeProviders())) emit({ type: 'hedge', label: `${slow} is slow — racing a backup provider` });
         scheduleHedge();
-      }, HEDGE_AFTER_MS);
+      }, hedgeMs);
     };
 
     function launch(excludeProviders) {
@@ -383,7 +384,7 @@ function race({ chain, payload, emit, signal, streaming, errors }) {
 /* ───────────────────────── public runner ───────────────────────── */
 async function run(opts, onEvent, streaming) {
   const {
-    feature = 'text', system, messages, temperature = 0.7, maxTokens = 8192, vision = false, signal,
+    feature = 'text', system, messages, temperature = 0.7, maxTokens = 8192, vision = false, signal, preferred = null,
   } = opts;
   const emit = onEvent || (() => {});
   const chainName = vision ? 'vision' : feature;
@@ -392,10 +393,22 @@ async function run(opts, onEvent, streaming) {
   const deadline = Date.now() + MAX_QUEUE_WAIT_MS;
 
   for (let round = 0; round < 4; round += 1) {
-    const chain = health.order(chainFor(chainName));
+    let chain = health.order(chainFor(chainName));
+    // user picked a model in the switcher → try it first, then continue the normal chain
+    const pick = preferred && providers[preferred.provider]?.keys.length && (!vision || preferred.provider === 'gemini') ? preferred : null;
+    if (pick) {
+      const rest = chain.filter((e) => !(e.provider === pick.provider && e.model === pick.model));
+      if (health.isDown(pick.provider) && round === 0) {
+        emit({ type: 'fallback', fromLabel: `${PROVIDER_LABEL[pick.provider]} (${pick.label || pick.model})`, toLabel: rest[0] && PROVIDER_LABEL[rest[0].provider], reason: 'not responding right now' });
+        chain = [...rest, pick];
+      } else {
+        chain = [{ provider: pick.provider, model: pick.model }, ...rest];
+      }
+    }
     if (!chain.length) break;
     try {
-      return await race({ chain, payload, emit, signal, streaming, errors });
+      // a manually picked model gets time to answer before a backup is raced against it
+      return await race({ chain, payload, emit, signal, streaming, errors, hedgeMs: pick ? PREFERRED_HEDGE_AFTER_MS : HEDGE_AFTER_MS });
     } catch (err) {
       if (err.aborted) throw err;
       if (!err.exhausted) throw err;

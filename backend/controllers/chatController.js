@@ -29,6 +29,7 @@ const { scrape, extractUrls } = require('../services/webScraperService');
 const { generateImages, SIZE_SPECS } = require('../services/imageService');
 const { routeIntent, detectImageSize, detectImageCount, detectImageQuality } = require('../services/intentRouter');
 const { webSearch } = require('../services/webSearchService');
+const { catalog, resolveModel } = require('../services/modelCatalog');
 const { PROVIDER_LABEL, labelOf } = require('../config/apiKeys');
 const { enhancePrompt } = require('./imageController');
 
@@ -105,6 +106,7 @@ function adapter(ctx, emit, step, stepId) {
 /* ───────────────────────── the pipeline ───────────────────────── */
 async function runPipeline({ req, chat, message, selectedMode, files, emit, signal, ctx, regen }) {
   const step = tracker(ctx, emit);
+  const preferred = resolveModel(req.body.model); // Model Switcher pick (null = Auto)
   const history = chat.messages.slice(-HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content || '', routedMode: m.routedMode }));
   const llmHistory = history.map(({ role, content }) => ({ role, content }));
 
@@ -132,10 +134,11 @@ async function runPipeline({ req, chat, message, selectedMode, files, emit, sign
   /* 2. files */
   let doc = { text: '', images: [], meta: [] };
   if (files.length) {
-    step('files', `Reading ${files.length} attached file${files.length > 1 ? 's' : ''}`);
+    const hasArchive = files.some((f) => /\.zip$/i.test(f.originalname || '') || (f.originalname || '').includes('/'));
+    step('files', hasArchive ? 'Extracting and reading the project files' : `Reading ${files.length} attached file${files.length > 1 ? 's' : ''}`);
     doc = await filesPromise;
-    step('files', undefined, 'done', doc.meta.map((m) => m.name).join(', '));
-    ctx.fileText = doc.text.slice(0, 60000); // kept so the answer can be regenerated later
+    step('files', undefined, 'done', doc.summary || doc.meta.map((m) => m.name).join(', '));
+    ctx.fileText = doc.text.slice(0, Number(process.env.MAX_FILE_CONTEXT_CHARS || 300000)); // kept so the answer can be regenerated later
   } else if (regen?.user?.attachments?.length) {
     // regenerate: reuse the text extracted from the original files (images can't be re-sent)
     doc = { text: regen.user.fileText || '', images: [], meta: regen.user.attachments };
@@ -197,6 +200,7 @@ async function runPipeline({ req, chat, message, selectedMode, files, emit, sign
       system: `${getMode('general').system}\nLive web search is unavailable. Answer from your knowledge and say clearly it may be out of date.`,
       messages: [...llmHistory, { role: 'user', content: message }],
       signal,
+      preferred,
     }, adapter(ctx, emit, step, 'generate'));
     step('generate', undefined, 'done', `${PROVIDER_LABEL[out.provider]} · ${out.model}`);
     return { content: out.text, provider: out.provider, model: out.model };
@@ -204,7 +208,19 @@ async function runPipeline({ req, chat, message, selectedMode, files, emit, sign
 
   /* 3c. text / code / document / url / writer */
   const mode = getMode(target);
-  let context = doc.text ? `\n\nThe user attached these files:\n${doc.text}` : '';
+  let context = '';
+  if (doc.text && doc.isProject) {
+    context = `\n\nThe user uploaded a project. Review it as a senior engineer:
+- Start from the directory structure; understand the architecture before judging files.
+- Find real bugs, security issues and bad practices. Cite them as \`path/to/file.ext:LINE\`.
+- Line numbers ("12| ") are for reference only — never include them in code you write.
+- For each fix show the corrected code (use before-/after- blocks for changes).
+- If the user asked something specific, focus on that first.
+
+${doc.text}`;
+  } else if (doc.text) {
+    context = `\n\nThe user attached these files:\n${doc.text}`;
+  }
   const urls = extractUrls(message);
   urls.forEach((u, i) => step(`url${i}`, `Reading ${hostOf(u)}`));
   const pages = await Promise.all(urls.map((u, i) => scrape(u).then(
@@ -214,14 +230,15 @@ async function runPipeline({ req, chat, message, selectedMode, files, emit, sign
   context += pages.join('');
 
   const vision = doc.images.length > 0;
-  step('generate', GENERATE_LABEL[target] || GENERATE_LABEL.general);
+  step('generate', doc.isProject ? 'Reviewing the project' : GENERATE_LABEL[target] || GENERATE_LABEL.general);
   const out = await stream({
     feature: target === 'code' ? 'code' : 'text',
     vision,
     system: mode.system,
-    messages: [...llmHistory, { role: 'user', content: (message || 'Analyse the attached file(s).') + context, images: doc.images }],
+    messages: [...llmHistory, { role: 'user', content: (message || (doc.isProject ? 'Review this project: explain what it does, then list bugs and improvements.' : 'Analyse the attached file(s).')) + context, images: doc.images }],
     temperature: mode.temperature,
     signal,
+    preferred,
   }, adapter(ctx, emit, step, 'generate'));
   step('generate', undefined, 'done', `${PROVIDER_LABEL[out.provider]} · ${out.model}`);
   return { content: out.text, provider: out.provider, model: out.model };
@@ -409,6 +426,11 @@ exports.getShared = async (req, res) => {
     .populate('user', 'name');
   if (!chat) return res.status(404).json({ message: 'This shared chat does not exist or is no longer public' });
   res.json({ chat: { title: chat.title, mode: chat.mode, author: chat.user?.name, messages: chat.messages, createdAt: chat.createdAt } });
+};
+
+// GET /api/models — options for the Model Switcher
+exports.listModels = (req, res) => {
+  res.json({ models: catalog() });
 };
 
 exports.listTemplates = async (req, res) => {

@@ -85,9 +85,13 @@ function ruleRoute(message, files = [], history = []) {
 
   // attachments decide first
   if (files.length) {
+    const names = files.map((f) => f.originalname || '');
+    // zip archives, folder uploads and code files → Code Expert (project review / debugging)
+    const project = names.some((n) => /\.zip$/i.test(n) || n.includes('/'));
+    if (project || names.every((n) => CODE_EXT.test(n))) return wrap('code', 'high', 'rules:code-file');
     const visual = files.some((f) => f.mimetype?.startsWith('image/') || f.mimetype === 'application/pdf');
     if (visual) return wrap('document', 'high', 'rules:file');
-    if (files.every((f) => CODE_EXT.test(f.originalname || ''))) return wrap('code', 'high', 'rules:code-file');
+    if (names.some((n) => CODE_EXT.test(n)) && P.codeAction.test(text)) return wrap('code', 'high', 'rules:code-file');
     return wrap('document', 'high', 'rules:file');
   }
 

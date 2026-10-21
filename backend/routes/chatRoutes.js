@@ -5,16 +5,23 @@ const a = require('../middleware/asyncHandler');
 const { protect } = require('../middleware/authMiddleware');
 const { expiryCheck } = require('../middleware/expiryCheck');
 const { usageLimit } = require('../middleware/usageLimit');
+const { uploadGuard } = require('../middleware/uploadGuard');
 const chat = require('../controllers/chatController');
 const image = require('../controllers/imageController');
 
+const MAX_FILE_MB = Number(process.env.MAX_UPLOAD_MB || 25);
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 5 }, // 10 MB per file, 5 files
+  preservePath: true, // keep "my-app/src/index.js" paths for folder uploads
+  limits: {
+    fileSize: MAX_FILE_MB * 1024 * 1024, // per file (zip archives can be up to this size)
+    files: Number(process.env.MAX_UPLOAD_FILES || 500), // folder uploads send many files
+    fields: 30,
+  },
 });
 
 const gated = [a(protect), expiryCheck, a(usageLimit)];
-const sendGate = [a(protect), expiryCheck, upload.array('files', 5), a(usageLimit)];
+const sendGate = [a(protect), expiryCheck, uploadGuard, upload.array('files', Number(process.env.MAX_UPLOAD_FILES || 500)), a(usageLimit)];
 
 // image endpoints that <img> tags load: generous per-IP limit
 const imageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 180, standardHeaders: true, legacyHeaders: false });
@@ -36,5 +43,6 @@ router.patch('/chats/:id', a(protect), a(chat.renameChat));
 router.delete('/chats/:id', a(protect), a(chat.deleteChat));
 router.post('/chats/:id/share', a(protect), a(chat.toggleShare));
 router.get('/templates', a(protect), a(chat.listTemplates));
+router.get('/models', a(protect), chat.listModels);
 
 module.exports = router;
