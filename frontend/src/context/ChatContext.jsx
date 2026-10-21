@@ -21,14 +21,16 @@ export function ChatProvider({ children }) {
   const [imageSize, setImageSize] = useState('landscape');
   const [imageQuality, setImageQuality] = useState('standard');
   const [models, setModels] = useState([]);
-  const [model, setModelState] = useState(() => { try { return localStorage.getItem('model') || 'auto'; } catch { return 'auto'; } });
+  // '' until the server's default (Groq GPT-OSS) arrives; a saved choice wins
+  const [model, setModelState] = useState(() => { try { return localStorage.getItem('model') || ''; } catch { return ''; } });
   const setModel = (id) => { setModelState(id); try { localStorage.setItem('model', id); } catch { /* ignore */ } };
 
   // Model Switcher options (only models configured on the server)
   useEffect(() => {
-    api.get('/models').then(({ models: list }) => {
+    api.get('/models').then(({ models: list = [], defaultId }) => {
       setModels(list);
-      if (!list.some((m) => m.id === model)) setModel('auto');
+      // no saved pick, or the saved model no longer exists → server default
+      if (!list.some((m) => m.id === model)) setModelState(defaultId || 'auto');
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -138,7 +140,7 @@ export function ChatProvider({ children }) {
     if (regenerate) form.append('regenerate', 'true');
     form.append('imageSize', imageSize);
     form.append('imageQuality', imageQuality);
-    form.append('model', model);
+    form.append('model', model || 'auto');
     files.forEach((f) => form.append('files', f));
 
     const isNew = !chat?._id;

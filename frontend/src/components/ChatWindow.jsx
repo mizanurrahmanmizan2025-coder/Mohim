@@ -6,7 +6,6 @@ import { useChat } from '../context/ChatContext.jsx';
 import MessageBubble, { TypingIndicator } from './MessageBubble.jsx';
 import Composer from './Composer.jsx';
 import { ShareModal } from './Modals.jsx';
-import ModelPicker from './ModelPicker.jsx';
 import { speak, stopSpeaking, ttsSupported } from './VoiceInput.jsx';
 import { STARTERS, exportChat, getModeMeta } from '../utils/helpers.js';
 
@@ -82,7 +81,6 @@ export default function ChatWindow({ onOpenMobile, draft, setDraft }) {
           <div className="truncate text-[15px] font-medium">{chat?.title || 'Custom AI Suite'}</div>
           <div className={`flex items-center gap-1 text-xs ${meta.color}`}><meta.icon size={12} /> {meta.label}</div>
         </div>
-        <ModelPicker />
         {ttsSupported && (
           <button className="btn-icon" onClick={toggleAutoSpeak} title={autoSpeak ? 'Auto read-aloud: on' : 'Auto read-aloud: off'}>
             {autoSpeak ? <Volume2 size={18} className="text-blue-500" /> : <VolumeX size={18} />}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, FileArchive, FileText, Folder, Plus, Square, X } from 'lucide-react';
 import VoiceInput from './VoiceInput.jsx';
 import PlusMenu from './PlusMenu.jsx';
+import ModelPicker from './ModelPicker.jsx';
 import { useChat } from '../context/ChatContext.jsx';
 import { getModeMeta } from '../utils/helpers.js';
 import {
@@ -214,7 +215,8 @@ export default function Composer({ draft, setDraft, disabled }) {
             )}
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
+            {mode !== 'image' && <ModelPicker compact />}
             <VoiceInput
               disabled={disabled}
               onTranscript={(text, isFinal) => {
