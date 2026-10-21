@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check, Copy, FileText, Search, Square, Volume2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Copy, FileText, RefreshCw, Search, Square, Volume2 } from 'lucide-react';
 import Markdown from './Markdown.jsx';
 import { Sparkle } from './Logo.jsx';
 import ProgressSteps, { ThinkingBox } from './ProgressSteps.jsx';
@@ -45,29 +45,38 @@ function UserBubble({ msg }) {
   );
 }
 
-export default function MessageBubble({ msg, readOnly = false }) {
+export default function MessageBubble({ msg, readOnly = false, onRegenerate, regenerateDisabled = false }) {
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   // animate only messages that started streaming in this session
   const [animate] = useState(Boolean(msg.live));
-  const shown = useTypewriter(msg.content || '', animate);
+  const typed = useTypewriter(msg.content || '', animate);
+
+  // Regenerate history: earlier answers live in msg.variants; the current answer is last.
+  const versions = [...(msg.variants || []), msg];
+  const [vIdx, setVIdx] = useState(null); // null = current answer
+  useEffect(() => { setVIdx(null); }, [msg._id, msg.variants?.length]);
+  const viewing = vIdx === null || msg.live ? null : versions[vIdx];
+  const view = viewing || msg;
+  const shown = viewing ? viewing.content || '' : typed;
+  const pos = vIdx === null ? versions.length - 1 : vIdx;
 
   if (msg.role === 'user') return <UserBubble msg={msg} />;
 
-  const typing = msg.live || shown.length < (msg.content || '').length;
+  const typing = !viewing && (msg.live || shown.length < (msg.content || '').length);
   const fenceOpen = ((shown.match(/```/g) || []).length % 2) === 1; // caret would land inside a code block
-  const hasImages = msg.imagePlan?.count > 0 || msg.images?.length > 0;
+  const hasImages = viewing ? viewing.images?.length > 0 : msg.imagePlan?.count > 0 || msg.images?.length > 0;
   const waitingForText = msg.live && !shown && !hasImages && !msg.thinking;
 
   const toggleSpeak = () => {
-    if (speaking) { stopSpeaking(); setSpeaking(false); } else { setSpeaking(true); speak(msg.content, () => setSpeaking(false)); }
+    if (speaking) { stopSpeaking(); setSpeaking(false); } else { setSpeaking(true); speak(view.content, () => setSpeaking(false)); }
   };
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 sm:gap-4">
       <Sparkle className={`mt-1 h-7 w-7 shrink-0 ${msg.live ? 'thinking-star' : ''}`} />
       <div className="min-w-0 flex-1">
-        <ProgressSteps steps={msg.steps} live={msg.live} />
+        <ProgressSteps key={pos} steps={view.steps} live={msg.live} />
         <ThinkingBox text={msg.thinking} live={msg.live && !shown} />
 
         {waitingForText && (
@@ -85,26 +94,40 @@ export default function MessageBubble({ msg, readOnly = false }) {
           </div>
         )}
 
-        {hasImages && <ImageGrid images={msg.images} plan={msg.imagePlan} progress={msg.imageProgress} />}
+        {hasImages && (viewing
+          ? <ImageGrid images={viewing.images} />
+          : <ImageGrid images={msg.images} plan={msg.imagePlan} progress={msg.imageProgress} />)}
 
         {msg.stopped && <div className="mt-2 text-xs text-gray-500">Stopped</div>}
 
-        {!readOnly && !msg.live && (msg.content || msg.images?.length > 0) && (
-          <div className="mt-2 flex items-center gap-1 text-gray-500">
+        {!readOnly && !msg.live && (msg.content || msg.images?.length > 0 || onRegenerate) && (
+          <div className="mt-2 flex flex-wrap items-center gap-1 text-gray-500">
+            {versions.length > 1 && (
+              <div className="mr-1 flex items-center text-xs tabular-nums">
+                <button className="btn-icon h-7 w-7" disabled={pos === 0} onClick={() => setVIdx(pos - 1)} title="Previous version"><ChevronLeft size={15} /></button>
+                <span>{pos + 1}/{versions.length}</span>
+                <button className="btn-icon h-7 w-7" disabled={pos === versions.length - 1} onClick={() => setVIdx(pos + 1 === versions.length - 1 ? null : pos + 1)} title="Next version"><ChevronRight size={15} /></button>
+              </div>
+            )}
+            {onRegenerate && (
+              <button className="btn-icon h-8 w-8 disabled:opacity-40" title="Regenerate response" disabled={regenerateDisabled} onClick={onRegenerate}>
+                <RefreshCw size={16} />
+              </button>
+            )}
             <button
               className="btn-icon h-8 w-8"
               title="Copy response"
-              onClick={async () => { if (await copyText(msg.content)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}
+              onClick={async () => { if (await copyText(view.content)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}
             >
               {copied ? <Check size={16} /> : <Copy size={16} />}
             </button>
-            {ttsSupported && msg.content && (
+            {ttsSupported && view.content && (
               <button className="btn-icon h-8 w-8" title={speaking ? 'Stop' : 'Read aloud'} onClick={toggleSpeak}>
                 {speaking ? <Square size={14} /> : <Volume2 size={16} />}
               </button>
             )}
-            <RouteChip mode={msg.routedMode} />
-            {msg.provider && <span className="ml-1 text-[11px] uppercase tracking-wide opacity-60">{msg.provider}</span>}
+            <RouteChip mode={view.routedMode} />
+            {view.provider && <span className="ml-1 text-[11px] uppercase tracking-wide opacity-60">{view.provider}</span>}
           </div>
         )}
       </div>

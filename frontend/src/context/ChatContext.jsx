@@ -54,8 +54,12 @@ export function ChatProvider({ children }) {
   };
 
   /* ───────────────────────── send with live progress ───────────────────────── */
-  const send = async (text, files = []) => {
-    if (sending || (!text.trim() && !files.length)) return;
+  const runStream = async ({ text = '', files = [], regenerate = false }) => {
+    if (sending) return;
+    if (!regenerate && !text.trim() && !files.length) return;
+    const msgs = chat?.messages || [];
+    const prevAssistant = regenerate ? msgs[msgs.length - 1] : null;
+    if (regenerate && (!chat?._id || prevAssistant?.role !== 'assistant' || prevAssistant.live)) return;
     setError(null);
     setSending(true);
 
@@ -72,7 +76,9 @@ export function ChatProvider({ children }) {
       clientKey: liveKey,
       role: 'assistant',
       live: true,
-      routedMode: mode === 'general' ? null : mode,
+      routedMode: regenerate ? prevAssistant.routedMode : mode === 'general' ? null : mode,
+      // earlier versions travel with the live message so the ‹ 1/2 › switcher keeps working
+      variants: regenerate ? [...(prevAssistant.variants || []), { content: prevAssistant.content, images: prevAssistant.images, routedMode: prevAssistant.routedMode, steps: prevAssistant.steps }] : undefined,
       steps: [{ id: 'connect', label: 'Connecting', status: 'active' }],
       thinking: '',
       content: '',
@@ -80,7 +86,15 @@ export function ChatProvider({ children }) {
       imagePlan: null,
       imageProgress: {},
     };
-    setChat((c) => ({ ...(c || { title: text.slice(0, 60) || 'New chat', mode }), messages: [...(c?.messages || []), userMsg, liveMsg] }));
+    if (regenerate) {
+      // swap the last answer for a live one (the old answer is restored if this fails)
+      setChat((c) => ({ ...c, messages: [...c.messages.slice(0, -1), liveMsg] }));
+    } else {
+      setChat((c) => ({ ...(c || { title: text.slice(0, 60) || 'New chat', mode }), messages: [...(c?.messages || []), userMsg, liveMsg] }));
+    }
+    const restorePrevious = () => {
+      if (regenerate) setChat((c) => (c ? { ...c, messages: c.messages.map((m) => (m.clientKey === liveKey ? prevAssistant : m)) } : c));
+    };
 
     const patch = (fn) => setChat((c) => (c ? { ...c, messages: c.messages.map((m) => (m.clientKey === liveKey ? fn(m) : m)) } : c));
 
@@ -108,6 +122,7 @@ export function ChatProvider({ children }) {
     form.append('message', text);
     form.append('mode', mode);
     if (chat?._id) form.append('chatId', chat._id);
+    if (regenerate) form.append('regenerate', 'true');
     form.append('imageSize', imageSize);
     form.append('imageQuality', imageQuality);
     files.forEach((f) => form.append('files', f));
@@ -176,7 +191,8 @@ export function ChatProvider({ children }) {
         case 'error':
           flush();
           setError({ message: d.message, code: d.code });
-          patch(finishSteps('error'));
+          if (regenerate) restorePrevious();
+          else patch(finishSteps('error'));
           break;
         default:
       }
@@ -191,13 +207,17 @@ export function ChatProvider({ children }) {
         if (isNew) setTimeout(loadChats, 800); // server saves partial answers
       } else {
         setError({ message: err.message, code: err.code });
-        patch(finishSteps('error'));
+        if (regenerate) restorePrevious();
+        else patch(finishSteps('error'));
         if (BLOCKING.includes(err.code)) refreshUser();
       }
     } finally {
       setSending(false);
     }
   };
+
+  const send = (text, files = []) => runStream({ text, files });
+  const regenerate = () => runStream({ regenerate: true });
 
   const stop = () => {
     abortRef.current?.abort();
@@ -228,7 +248,7 @@ export function ChatProvider({ children }) {
       value={{
         chats, chat, mode, setMode, sending, error, setError, loadingChat,
         imageSize, setImageSize, imageQuality, setImageQuality,
-        send, stop, newChat, deleteChat, renameChat, setShare,
+        send, regenerate, stop, newChat, deleteChat, renameChat, setShare,
       }}
     >
       {children}

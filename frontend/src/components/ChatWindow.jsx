@@ -21,7 +21,7 @@ function accountBlock(user) {
 
 export default function ChatWindow({ onOpenMobile, draft, setDraft }) {
   const { user } = useAuth();
-  const { chat, mode, error, setError, setShare, loadingChat } = useChat();
+  const { chat, mode, error, setError, setShare, loadingChat, regenerate, sending } = useChat();
   const [shareOpen, setShareOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('autoSpeak') === '1');
@@ -131,7 +131,14 @@ export default function ChatWindow({ onOpenMobile, draft, setDraft }) {
           )}
 
           <div className="space-y-8 pt-4">
-            {messages.map((m) => <MessageBubble key={m.clientKey || m._id} msg={m} />)}
+            {messages.map((m, i) => (
+              <MessageBubble
+                key={m.clientKey || m._id}
+                msg={m}
+                onRegenerate={i === messages.length - 1 && m.role === 'assistant' && chat?._id && !blockedMsg && !String(m._id).startsWith('live-') ? regenerate : undefined}
+                regenerateDisabled={sending}
+              />
+            ))}
           </div>
 
           {error && !BLOCKED_CODES.includes(error.code) && (

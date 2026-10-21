@@ -234,13 +234,24 @@ export default function AdminPanel() {
             <div key={p.provider} className="rounded-2xl bg-surface-card p-4 text-sm dark:bg-surface-darkcard">
               <div className="flex items-center justify-between">
                 <span className="font-semibold capitalize">{i + 1}. {p.provider}</span>
-                <span className={`h-2.5 w-2.5 rounded-full ${p.totalKeys === 0 ? 'bg-gray-400' : p.coolingDown === p.totalKeys ? 'bg-red-500' : 'bg-emerald-500'}`} />
+                <span
+                  title={p.health?.status === 'down' ? `Down: ${p.health.reason}` : 'Reachable'}
+                  className={`h-2.5 w-2.5 rounded-full ${p.totalKeys === 0 ? 'bg-gray-400' : p.health?.status === 'down' || p.coolingDown === p.totalKeys ? 'bg-red-500' : 'bg-emerald-500'}`}
+                />
               </div>
               <div className="mt-1 truncate font-mono text-xs text-gray-500">{p.label ? `${p.label} · ` : ''}{p.model}</div>
               <div className="mt-3 text-xs">
-                {p.totalKeys} keys · {p.coolingDown} cooling down<br />
+                {p.totalKeys} keys · {p.coolingDown} cooling down · {p.requestsLastMinute ?? 0} req/min<br />
                 ✓ {p.stats.success} · ✕ {p.stats.failed} · 429 {p.stats.rateLimited}
               </div>
+              {(p.health?.avgFirstTokenMs != null || p.health?.pingMs != null) && (
+                <div className="mt-1 text-[11px] text-gray-500">
+                  {p.health.avgFirstTokenMs != null && <>⚡ first token ~{(p.health.avgFirstTokenMs / 1000).toFixed(1)}s</>}
+                  {p.health.pingMs != null && <> · ping {p.health.pingMs}ms</>}
+                </div>
+              )}
+              {p.health?.status === 'down' && <div className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] text-red-700 dark:bg-red-900/20 dark:text-red-300">Not responding — skipped for now ({p.health.reason})</div>}
+              {p.note && <div className="mt-2 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">⚠ {p.note}</div>}
             </div>
           ))}
         </div>
