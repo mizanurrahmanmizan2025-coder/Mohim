@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check, ChevronLeft, ChevronRight, Copy, FileText, RefreshCw, Search, Square, Volume2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Copy, FileArchive, FileText, Folder, RefreshCw, Search, Square, Volume2 } from 'lucide-react';
 import Markdown from './Markdown.jsx';
 import { Sparkle } from './Logo.jsx';
 import ProgressSteps, { ThinkingBox } from './ProgressSteps.jsx';
@@ -32,7 +32,9 @@ function UserBubble({ msg }) {
         )}
         {msg.attachments?.filter((a) => !msg.previews?.length || !a.mimeType?.startsWith('image/')).map((a) => (
           <div key={a.name} className="ml-auto flex w-fit items-center gap-2 rounded-xl bg-surface-card px-3 py-2 text-xs dark:bg-surface-darkcard">
-            <FileText size={14} /> {a.name}
+            {a.mimeType === 'inode/directory' ? <Folder size={14} className="text-amber-500" /> : /zip/.test(a.mimeType || '') ? <FileArchive size={14} className="text-violet-500" /> : <FileText size={14} />}
+            {a.name}
+            {a.count > 1 && <span className="text-gray-500">· {a.count} files</span>}
           </div>
         ))}
         {msg.content && (
@@ -127,7 +129,11 @@ export default function MessageBubble({ msg, readOnly = false, onRegenerate, reg
               </button>
             )}
             <RouteChip mode={view.routedMode} />
-            {view.provider && <span className="ml-1 text-[11px] uppercase tracking-wide opacity-60">{view.provider}</span>}
+            {view.provider && (
+              <span className="ml-1 text-[11px] tracking-wide opacity-60" title={view.model}>
+                <span className="uppercase">{view.provider}</span>{view.model && view.provider !== 'pollinations' ? ` · ${view.model.split('/').pop()}` : ''}
+              </span>
+            )}
           </div>
         )}
       </div>

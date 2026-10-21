@@ -1,4 +1,4 @@
-import { Code2, FileText, Globe, ImagePlus, MessageSquare, PenLine } from 'lucide-react';
+import { Code2, FileText, Globe, ImagePlus, MessageSquare, PenLine, Search } from 'lucide-react';
 
 /* ───── Modes shown in the sidebar ───── */
 export const MODES = [
@@ -6,6 +6,7 @@ export const MODES = [
   { key: 'code', label: 'Code Expert', icon: Code2, hint: 'Write, debug and refactor code', color: 'text-emerald-500' },
   { key: 'image', label: 'Image Generator', icon: ImagePlus, hint: 'Describe an image or thumbnail', color: 'text-pink-500' },
   { key: 'document', label: 'Document Analyzer', icon: FileText, hint: 'Upload a PDF or image and ask about it', color: 'text-amber-500' },
+  { key: 'search', label: 'Web Search', icon: Search, hint: 'Search the live web for answers with sources', color: 'text-sky-500' },
   { key: 'url', label: 'Web Analyzer', icon: Globe, hint: 'Paste a link to summarise or analyse', color: 'text-cyan-500' },
   { key: 'writer', label: 'Content Writer', icon: PenLine, hint: 'Blogs, articles and social posts', color: 'text-violet-500' },
 ];
@@ -17,6 +18,7 @@ export const STARTERS = {
   image: ['YouTube thumbnail: “10 AI tools you need”, neon style', 'Logo concept for a coffee shop, minimal', 'Futuristic Dhaka skyline at night, cinematic'],
   document: ['Summarise the attached PDF', 'Extract all tables as Markdown', 'Read the text in this image'],
   url: ['Summarise https://en.wikipedia.org/wiki/Large_language_model', 'Compare the key points of two articles (paste both links)'],
+  search: ['Latest AI news this week', 'Current gold price in Bangladesh', 'Best budget laptops right now'],
   writer: ['SEO blog post about remote work', '5 LinkedIn posts for a product launch', 'Instagram captions for a bakery'],
 };
 

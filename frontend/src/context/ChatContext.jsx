@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, streamRequest } from '../utils/api.js';
 import { useAuth } from './AuthContext.jsx';
+import { summarizeAttachments } from '../utils/fileSelection.js';
 
 const ChatContext = createContext(null);
 const BLOCKING = ['SUBSCRIPTION_EXPIRED', 'ACCOUNT_SUSPENDED', 'ACCOUNT_BLOCKED'];
@@ -19,6 +20,18 @@ export function ChatProvider({ children }) {
   const [loadingChat, setLoadingChat] = useState(false);
   const [imageSize, setImageSize] = useState('landscape');
   const [imageQuality, setImageQuality] = useState('standard');
+  const [models, setModels] = useState([]);
+  const [model, setModelState] = useState(() => { try { return localStorage.getItem('model') || 'auto'; } catch { return 'auto'; } });
+  const setModel = (id) => { setModelState(id); try { localStorage.setItem('model', id); } catch { /* ignore */ } };
+
+  // Model Switcher options (only models configured on the server)
+  useEffect(() => {
+    api.get('/models').then(({ models: list }) => {
+      setModels(list);
+      if (!list.some((m) => m.id === model)) setModel('auto');
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const abortRef = useRef(null);
 
   const loadChats = useCallback(async () => {
@@ -68,7 +81,7 @@ export function ChatProvider({ children }) {
       _id: `${liveKey}-u`,
       role: 'user',
       content: text,
-      attachments: files.map((f) => ({ name: f.name, mimeType: f.type, size: f.size })),
+      attachments: summarizeAttachments(files),
       previews: files.filter((f) => f.type.startsWith('image/')).map((f) => URL.createObjectURL(f)),
     };
     const liveMsg = {
@@ -125,6 +138,7 @@ export function ChatProvider({ children }) {
     if (regenerate) form.append('regenerate', 'true');
     form.append('imageSize', imageSize);
     form.append('imageQuality', imageQuality);
+    form.append('model', model);
     files.forEach((f) => form.append('files', f));
 
     const isNew = !chat?._id;
@@ -247,7 +261,7 @@ export function ChatProvider({ children }) {
     <ChatContext.Provider
       value={{
         chats, chat, mode, setMode, sending, error, setError, loadingChat,
-        imageSize, setImageSize, imageQuality, setImageQuality,
+        imageSize, setImageSize, imageQuality, setImageQuality, models, model, setModel,
         send, regenerate, stop, newChat, deleteChat, renameChat, setShare,
       }}
     >
