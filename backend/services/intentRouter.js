@@ -13,13 +13,13 @@
  *
  * Env:
  *   ROUTER_MODE        hybrid (default) | rules | llm   — "llm" classifies every message
- *   ROUTER_TIMEOUT_MS  max wait for the classifier (default 7000)
+ *   ROUTER_TIMEOUT_MS  max wait for the classifier (default 3000)
  */
 const { generate } = require('./fallbackService');
 const { extractUrls } = require('./webScraperService');
 
 const MODE = (process.env.ROUTER_MODE || 'hybrid').toLowerCase();
-const TIMEOUT = Number(process.env.ROUTER_TIMEOUT_MS || 7000);
+const TIMEOUT = Number(process.env.ROUTER_TIMEOUT_MS || 3000);
 const INTENTS = ['general', 'code', 'image', 'search', 'writer'];
 
 /* ───────────────────────── Rule patterns (EN + বাংলা + Banglish) ───────────────────────── */

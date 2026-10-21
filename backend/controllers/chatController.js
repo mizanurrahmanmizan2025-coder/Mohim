@@ -69,7 +69,7 @@ function adapter(ctx, emit, step, stepId) {
   return (ev) => {
     switch (ev.type) {
       case 'attempt':
-        step(stepId, undefined, 'active', `${ev.label} · ${ev.model}`);
+        step(stepId, undefined, 'active', `${ev.label} · ${ev.model}${ev.won ? ' (fastest)' : ''}`);
         break;
       case 'thinking':
         emit('thinking', { text: ev.text });
@@ -85,6 +85,10 @@ function adapter(ctx, emit, step, stepId) {
       case 'fallback':
         n += 1;
         step(`${stepId}-fb${n}`, ev.toLabel ? `${ev.fromLabel}: ${ev.reason} → switching to ${ev.toLabel}` : `${ev.fromLabel}: ${ev.reason}`, 'warn');
+        break;
+      case 'hedge':
+        n += 1;
+        step(`${stepId}-hedge${n}`, ev.label, 'warn');
         break;
       case 'waiting':
         n += 1;
@@ -103,6 +107,10 @@ async function runPipeline({ req, chat, message, selectedMode, files, emit, sign
   const step = tracker(ctx, emit);
   const history = chat.messages.slice(-HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content || '', routedMode: m.routedMode }));
   const llmHistory = history.map(({ role, content }) => ({ role, content }));
+
+  // file parsing starts immediately and runs while the router decides (saves a round-trip)
+  const filesPromise = files.length ? processFiles(files) : null;
+  filesPromise?.catch(() => {}); // error surfaces below when awaited
 
   /* 1. understand */
   step('understand', regen ? 'Regenerating the response' : 'Understanding your request');
@@ -125,7 +133,7 @@ async function runPipeline({ req, chat, message, selectedMode, files, emit, sign
   let doc = { text: '', images: [], meta: [] };
   if (files.length) {
     step('files', `Reading ${files.length} attached file${files.length > 1 ? 's' : ''}`);
-    doc = await processFiles(files);
+    doc = await filesPromise;
     step('files', undefined, 'done', doc.meta.map((m) => m.name).join(', '));
     ctx.fileText = doc.text.slice(0, 60000); // kept so the answer can be regenerated later
   } else if (regen?.user?.attachments?.length) {
@@ -198,17 +206,12 @@ async function runPipeline({ req, chat, message, selectedMode, files, emit, sign
   const mode = getMode(target);
   let context = doc.text ? `\n\nThe user attached these files:\n${doc.text}` : '';
   const urls = extractUrls(message);
-  for (let i = 0; i < urls.length; i += 1) {
-    step(`url${i}`, `Reading ${hostOf(urls[i])}`);
-    try {
-      const page = await scrape(urls[i]);
-      context += `\n\n--- WEB PAGE: ${page.title} (${page.url}) ---\n${page.description}\n${page.text}`;
-      step(`url${i}`, undefined, 'done', page.title || `${page.text.length} characters`);
-    } catch (err) {
-      context += `\n\n[Could not read ${urls[i]}: ${err.message}]`;
-      step(`url${i}`, `Couldn't read ${hostOf(urls[i])}`, 'warn', err.message);
-    }
-  }
+  urls.forEach((u, i) => step(`url${i}`, `Reading ${hostOf(u)}`));
+  const pages = await Promise.all(urls.map((u, i) => scrape(u).then(
+    (page) => { step(`url${i}`, undefined, 'done', page.title || `${page.text.length} characters`); return `\n\n--- WEB PAGE: ${page.title} (${page.url}) ---\n${page.description}\n${page.text}`; },
+    (err) => { step(`url${i}`, `Couldn't read ${hostOf(u)}`, 'warn', err.message); return `\n\n[Could not read ${u}: ${err.message}]`; }
+  )));
+  context += pages.join('');
 
   const vision = doc.images.length > 0;
   step('generate', GENERATE_LABEL[target] || GENERATE_LABEL.general);

@@ -13,6 +13,7 @@
  *    long (bounded) instead of failing when every key is momentarily busy.
  */
 const { providers, poolFor, chains, keyWarnings } = require('../config/apiKeys');
+const health = require('./providerHealth');
 
 const COOLDOWN_MS = Number(process.env.KEY_COOLDOWN_MS || 30000);
 const DAILY_COOLDOWN_MS = Number(process.env.KEY_DAILY_COOLDOWN_MS || 60 * 60 * 1000);
@@ -108,6 +109,7 @@ function getPoolStatus() {
         note: keyWarnings[p.name] || (p.name === 'pollinations' && !p.apiKeys.length ? 'Keyless mode — images may carry a logo' : undefined),
         coolingDown: p.keys.filter((k) => (st.cooldownUntil[k] || 0) > now).length,
         requestsLastMinute: p.keys.reduce((n, k) => n + recentCount(st, k, now), 0),
+        health: health.snapshot()[p.name] || { status: 'up' },
         stats: st.stats,
       };
     });

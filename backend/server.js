@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
+const http = require('./config/http'); // must load before anything calls fetch (keep-alive pool)
 
 const express = require('express');
 const helmet = require('helmet');
@@ -82,7 +83,15 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 
 connectDB()
   .then(seedTemplates)
-  .then(() => app.listen(PORT, () => console.log(`[server] listening on :${PORT}`)))
+  .then(() => {
+    const server = app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
+    // inbound keep-alive longer than the host's load balancer (avoids random 502s/reconnects)
+    server.keepAliveTimeout = 65000;
+    server.headersTimeout = 66000;
+    // keep connections to AI providers warm + detect unreachable ones early
+    http.startWarmup(Object.values(providers).filter((p) => p.type !== 'image' && p.keys.length).map((p) => p.name)
+      .concat(['cloudflare', 'huggingface'].filter((n) => providers[n].keys.length)), require('./services/providerHealth'));
+  })
   .catch((err) => {
     console.error('[server] failed to start:', err.message);
     process.exit(1);
