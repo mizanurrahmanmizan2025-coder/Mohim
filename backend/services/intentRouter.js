@@ -43,6 +43,10 @@ const P = {
 
   // content writing
   writerAction: /\b(write|draft|compose|create|generate|give me)\b[^.?!\n]{0,40}\b(blog|article|post|caption|captions|tweet|thread|newsletter|essay|email|cover letter|ad copy|product description|seo|landing page copy|youtube script|video script|linkedin|instagram|facebook|story|poem|speech|press release)\b/i,
+  // "can you …?" / "তুমি কি … পারবে?" — questions ABOUT what the assistant can do
+  capability: /^\s*(hi|hello|hey|ok|bro|please)?[\s,!]*(can|could|will|would) (you|u)\b|\b(are you able|is it possible for you|do you (have|support|know how)|what can you do)\b|(পারবে|পারবেন|পারো|পারেন|পারবা)|\b(parbe|parben|paro|paren|parba)\b/i,
+  // the user explicitly asks for code
+  explicitCode: /\b(code|coding|script|function|snippet|regex|sql|query|component|endpoint|class|program in|source)\b|কোড|স্ক্রিপ্ট/i,
   writerBn: /(ব্লগ|আর্টিকেল|ক্যাপশন|পোস্ট|প্রবন্ধ|রচনা|ইমেইল).{0,20}(লিখ|লেখ)|\b(likhe dao|likho)\b/i,
 };
 
@@ -108,6 +112,9 @@ function ruleRoute(message, files = [], history = []) {
 
   if (P.searchExplicit.test(text)) return wrap('search', 'high', 'rules:search', { searchQuery: text });
   if (P.writerAction.test(text) || P.writerBn.test(text)) return wrap('writer', 'high', 'rules:writer');
+  // "Can you build me an app?" / "Can you connect to my YouTube?" → friendly chat answer
+  // (explains what's possible, asks what they need) — not a wall of code
+  if (P.capability.test(text) && !P.explicitCode.test(text)) return wrap('general', 'high', 'rules:capability');
   if (P.codeAction.test(text)) return wrap('code', 'high', 'rules:code');
 
   // ── weaker signals → ask the classifier ──
@@ -129,7 +136,7 @@ const CLASSIFIER_SYSTEM = `You are an intent router for an AI assistant. Read th
 - "code": writing, fixing, explaining or reviewing software code, commands, configs or technical errors.
 - "search": needs fresh or factual information from the live web (news, current events, prices, recent releases, "latest", anything after 2024, or the user asks to research/search).
 - "writer": long-form or marketing content (blog post, article, captions, emails, scripts, SEO copy).
-- "general": everything else (chat, advice, explanations, math, how-to questions — including "how do I create an image in Photoshop").
+- "general": everything else (chat, advice, explanations, math, how-to questions — including "how do I create an image in Photoshop"), questions about what the assistant can do ("can you manage my YouTube?"), and vague requests like "can you build me an app?" that don't ask for code yet.
 Reply with ONLY minified JSON, no markdown:
 {"intent":"...","image_prompt":"<if image: a detailed English visual prompt, merging changes with the previous image prompt if it is a follow-up; else empty>","image_size":"landscape|square|portrait|wide","image_quality":"standard|hd|4k","image_count":1-4,"search_query":"<if search: a concise English web search query; else empty>"}`;
 
